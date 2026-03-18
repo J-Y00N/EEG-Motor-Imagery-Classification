@@ -1,5 +1,19 @@
+.venv/
+.DS_Store
+.vscode/
+outputs/*
+!outputs/.gitkeep
+docs/assets/**/result.json
+docs/assets/**/result.md
+docs/assets/**/*.json
+docs/assets/**/*_eda_summary.json
+docs/assets/generated/*.csv
+docs/assets/generated/*.md
+*.egg-info/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
 *.py[codz]
 *$py.class
 

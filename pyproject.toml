@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eeg-motor-imagery-classification"
+version = "0.1.0"
+description = "Modular EEG motor imagery classification pipeline"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.8",
+    "mne>=1.8",
+    "moabb>=1.1",
+    "numpy>=1.26",
+    "pyriemann>=0.7",
+    "scipy>=1.11",
+    "scikit-learn>=1.4",
+    "torch>=2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+]
+
+[project.scripts]
+eeg-mi = "eeg_motor_imagery_classification.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["eeg_motor_imagery_classification*"]
