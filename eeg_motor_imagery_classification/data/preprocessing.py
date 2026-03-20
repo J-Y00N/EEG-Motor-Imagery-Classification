@@ -13,9 +13,9 @@ from eeg_motor_imagery_classification.data.loaders import SubjectSessions
 def _pick_relevant_channels(raw: mne.io.BaseRaw, config: PreprocessingConfig) -> mne.io.BaseRaw:
     picked = raw.copy()
     if config.eeg_channels_only:
-        picks = mne.pick_types(picked.info, eeg=True, eog=False, stim=True, exclude="bads")
+        picks = mne.pick_types(picked.info, eeg=True, eog=False, stim=False, exclude="bads")
     else:
-        picks = mne.pick_types(picked.info, eeg=True, eog=True, stim=True, exclude="bads")
+        picks = mne.pick_types(picked.info, eeg=True, eog=True, stim=False, exclude="bads")
     picked.pick(picks)
     return picked
 
@@ -83,4 +83,3 @@ def iter_preprocessed_runs(
 
     for item in preprocess_runs(sessions, config=config):
         yield item
-

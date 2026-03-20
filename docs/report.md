@@ -374,7 +374,7 @@ Paired permutation checks on repeated seed-target observations reinforce the sam
 - `20_shot`: `+0.0714`, `p ~= 0.0024`
 - `30_shot`: `+0.0575`, `p ~= 0.0108`
 
-The updated repeated-seed sweep also keeps `EEGNet` above `FBCSP` at every shot setting, although direct `EEGNet`-versus-`FBCSP` permutation values are not listed here because the archived repeated-seed classical export is no longer present locally.
+The updated repeated-seed sweep also keeps `EEGNet` above `FBCSP` at every shot setting.
 
 This repeated-seed check makes the transfer conclusion more defensible. The advantage of `EEGNet` in transfer is not just a one-split artifact, and the geometric baseline remains a strong non-deep alternative with a clear advantage over the classical `FBCSP` transfer pipeline.
 

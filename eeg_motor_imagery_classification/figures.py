@@ -316,23 +316,49 @@ def export_report_assets(
     _save_pipeline_figure(assets / "evaluation_pipeline.png")
     generated["pipeline_figure"] = str(assets / "evaluation_pipeline.png")
 
-    within_classical = _load_json_if_exists(outputs / "within_subject_classical" / "result.json")
-    within_riemann = _load_json_if_exists(outputs / "within_subject_riemann" / "result.json")
+    within_classical = _load_first_existing_json(
+        outputs / "within_subject_classical" / "result.json",
+        outputs / "repro_classical_within" / "result.json",
+    )
+    within_riemann = _load_first_existing_json(
+        outputs / "within_subject_riemann" / "result.json",
+        outputs / "repro_riemann_within" / "result.json",
+    )
     within_eegnet = _load_first_existing_json(
+        outputs / "within_subject_eegnet" / "result.json",
         outputs / "within_subject_eegnet_es50" / "result.json",
         outputs / "within_subject_eegnet_e30" / "result.json",
+        outputs / "repro_eegnet_within" / "result.json",
     )
-    loso_classical = _load_json_if_exists(outputs / "loso_classical" / "result.json")
-    loso_riemann = _load_json_if_exists(outputs / "loso_riemann" / "result.json")
+    loso_classical = _load_first_existing_json(
+        outputs / "loso_classical" / "result.json",
+        outputs / "repro_classical_loso" / "result.json",
+    )
+    loso_riemann = _load_first_existing_json(
+        outputs / "loso_riemann" / "result.json",
+        outputs / "repro_riemann_loso" / "result.json",
+    )
     loso_eegnet = _load_first_existing_json(
+        outputs / "loso_eegnet" / "result.json",
         outputs / "loso_eegnet_es50" / "result.json",
         outputs / "loso_eegnet_e30" / "result.json",
+        outputs / "repro_eegnet_loso" / "result.json",
     )
-    transfer_repeated_classical = _load_json_if_exists(outputs / "transfer_classical_all_targets_seed42_43" / "result.json")
-    transfer_repeated_riemann = _load_json_if_exists(outputs / "transfer_riemann_all_targets_seed42_43_v2" / "result.json")
+    transfer_repeated_classical = _load_first_existing_json(
+        outputs / "transfer_classical_all_targets_seed42_43" / "result.json",
+        outputs / "transfer_classical_all_targets_seed42_43_v2" / "result.json",
+        outputs / "repro_transfer_classical_seed42_43" / "result.json",
+    )
+    transfer_repeated_riemann = _load_first_existing_json(
+        outputs / "transfer_riemann_all_targets_seed42_43_v2" / "result.json",
+        outputs / "transfer_riemann_all_targets_seed42_43" / "result.json",
+        outputs / "repro_transfer_riemann_seed42_43" / "result.json",
+    )
     transfer_repeated_eegnet = _load_first_existing_json(
+        outputs / "transfer_eegnet_all_targets_seed42_43" / "result.json",
         outputs / "transfer_eegnet_all_targets_seed42_43_es50" / "result.json",
         outputs / "transfer_eegnet_all_targets_seed42_43_e30" / "result.json",
+        outputs / "repro_transfer_eegnet_seed42_43" / "result.json",
     )
 
     within_headers = ["Model", "Accuracy Mean", "Accuracy Std"]

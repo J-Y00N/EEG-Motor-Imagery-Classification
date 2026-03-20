@@ -179,7 +179,7 @@ When saved experiment outputs are available locally, this export step also gener
 
 - classical CV splits and transfer calibration splits default to `seed=42`
 - repeated transfer evaluation can be enabled with `--seed-list`
-- EEGNet runs seed Python, NumPy, and torch via [`train.py`](/Users/jy/_stats_/LocalHub/EEG-Motor-Imagery-Classification/eeg_motor_imagery_classification/train.py)
+- EEGNet runs seed Python, NumPy, and torch via [`train.py`](eeg_motor_imagery_classification/train.py)
 - deterministic torch algorithms are enabled by default for repeatable deep-learning runs
 - EEGNet now uses validation-based early stopping by default, with `50` max epochs and the best validation epoch restored after training
 - you can override the seed with `--seed` and opt out of deterministic kernels with `--non-deterministic`
