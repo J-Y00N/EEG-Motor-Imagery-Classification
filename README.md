@@ -15,6 +15,11 @@ Interpretation:
 - LOSO: `EEGNet` is the strongest verified subject-independent baseline
 - cross-subject transfer: `EEGNet` is the strongest verified transfer model, with `Riemann` as the strongest non-deep alternative
 
+## Report
+
+- full paper-style report: [docs/report.md](docs/report.md)
+- generated figures: [docs/assets/generated](docs/assets/generated)
+
 ## Scope
 
 - dataset: `BNCI2014_001`
