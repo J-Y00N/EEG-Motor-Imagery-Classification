@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import replace
 import time
 
 import numpy as np
@@ -348,8 +349,14 @@ def run_eegnet_transfer_repeated_sweep(
     training_config: TrainingConfig | None = None,
     finetune_config: TrainingConfig | None = None,
 ) -> dict[str, object]:
-    """Evaluate EEGNet transfer across repeated calibration splits."""
+    """Evaluate EEGNet transfer across repeated seeds.
 
+    Each seed sets both the calibration split / shot sampling and the network training seed
+    (initialisation, pretraining validation split, batch order, fine-tuning), so repeated
+    runs reflect deep-model training variance and not only calibration-split variance.
+    """
+
+    base_cfg = training_config or TrainingConfig()
     seed_runs = {}
     for seed in seeds:
         seed_runs[f"seed_{seed}"] = run_eegnet_transfer_sweep(
@@ -360,8 +367,8 @@ def run_eegnet_transfer_repeated_sweep(
             calibration_size=calibration_size,
             calibration_shots=calibration_shots,
             random_state=seed,
-            training_config=training_config,
-            finetune_config=finetune_config,
+            training_config=replace(base_cfg, seed=seed),
+            finetune_config=replace(finetune_config, seed=seed) if finetune_config is not None else None,
         )
     result = aggregate_transfer_seed_runs(seed_runs)
     result["runtime_seconds"] = float(

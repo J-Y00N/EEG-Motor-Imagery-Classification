@@ -11,6 +11,8 @@ import numpy as np
 from scipy.signal import welch
 from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
+from sklearn.model_selection import StratifiedKFold, cross_val_predict
+from sklearn.preprocessing import StandardScaler
 from pyriemann.estimation import Covariances
 from pyriemann.tangentspace import TangentSpace
 import torch
@@ -21,6 +23,7 @@ from eeg_motor_imagery_classification.data.datasets import EpochDataset
 from eeg_motor_imagery_classification.data.epochs import extract_epochs_array
 from eeg_motor_imagery_classification.data.loaders import load_subject_bundle
 from eeg_motor_imagery_classification.data.preprocessing import preprocess_runs
+from eeg_motor_imagery_classification.features import LogVarianceVectorizer
 from eeg_motor_imagery_classification.models import (
     EEGNet,
     build_csp_pipeline,
@@ -29,6 +32,34 @@ from eeg_motor_imagery_classification.models import (
 )
 from eeg_motor_imagery_classification.train import TrainingConfig, train_model
 from eeg_motor_imagery_classification.utils import ensure_directory, write_json
+
+# EDA epochs are cut wider than the classification window (0-4 s after the cue) so that the
+# ERD/ERS reference interval and the displayed task interval stay clear of the Morlet
+# wavelet edge effects at both ends of each epoch.
+EDA_TMIN = -1.5  # s relative to the cue (= 0.5 s after the fixation cross / warning tone)
+EDA_TMAX_PAD = 0.5  # s appended after the task window
+ERDS_BASELINE = (-1.0, -0.2)  # pre-cue reference interval (s)
+ERDS_DISPLAY = (-1.0, 4.0)  # interval shown in ERDS figures (s)
+
+
+def baseline_percent_change(power: np.ndarray, times: np.ndarray, baseline: tuple[float, float] = ERDS_BASELINE) -> np.ndarray:
+    """Classical ERD/ERS: average power over trials first, then express it relative to baseline.
+
+    ``power`` has trials on axis 0 and time on the last axis. Averaging per-trial ratios
+    instead (E[P/B]) is biased upwards because the short single-trial baseline B is noisy, which
+    produces a spurious sustained "power increase" even for data without any task effect.
+    """
+
+    baseline_mask = (times >= baseline[0]) & (times <= baseline[1])
+    if not np.any(baseline_mask):
+        raise ValueError(f"No time points inside the ERDS baseline window {baseline}.")
+    mean_power = power.mean(axis=0)
+    reference = mean_power[..., baseline_mask].mean(axis=-1, keepdims=True)
+    return 100.0 * (mean_power - reference) / reference
+
+
+def _log_variance_features(X: np.ndarray) -> np.ndarray:
+    return StandardScaler().fit_transform(LogVarianceVectorizer().transform(X))
 
 
 def _plot_psd(bundle, output_path: Path) -> None:
@@ -40,11 +71,11 @@ def _plot_psd(bundle, output_path: Path) -> None:
         class_name = INDEX_TO_LABEL[int(class_id)]
         class_data = bundle.X[bundle.y == class_id]
         freqs, psd = welch(class_data, fs=sfreq, nperseg=min(256, class_data.shape[-1]), axis=-1)
-        mean_psd = psd.mean(axis=(0, 1))
-        ax.plot(freqs, 10.0 * np.log10(mean_psd + 1e-12), linewidth=2.0, label=class_name)
+        mean_psd_uv2 = psd.mean(axis=(0, 1)) * 1e12  # V^2/Hz -> uV^2/Hz
+        ax.plot(freqs, 10.0 * np.log10(np.maximum(mean_psd_uv2, np.finfo(float).tiny)), linewidth=2.0, label=class_name)
     ax.set_xlim(0.0, 40.0)
     ax.set_xlabel("Frequency (Hz)")
-    ax.set_ylabel("Power Spectral Density (dB)")
+    ax.set_ylabel("PSD (dB re 1 $\\mu$V$^2$/Hz)")
     ax.set_title(f"Subject {bundle.metadata.subject_id} PSD by Class")
     ax.grid(True, linestyle="--", alpha=0.25)
     ax.legend(frameon=False)
@@ -56,8 +87,8 @@ def _plot_psd(bundle, output_path: Path) -> None:
 def _plot_pca(bundle, output_path: Path) -> None:
     import matplotlib.pyplot as plt
 
-    X_flat = bundle.X.reshape(bundle.X.shape[0], -1)
-    projection = PCA(n_components=2, random_state=42).fit_transform(X_flat)
+    features = _log_variance_features(bundle.X)
+    projection = PCA(n_components=2, random_state=42).fit_transform(features)
 
     fig, ax = plt.subplots(figsize=(6.5, 5.0))
     palette = {0: "#2f5d50", 1: "#c26d3a"}
@@ -72,7 +103,7 @@ def _plot_pca(bundle, output_path: Path) -> None:
             label=class_name,
             color=palette.get(int(class_id), "#444444"),
         )
-    ax.set_title(f"Subject {bundle.metadata.subject_id} Epoch PCA")
+    ax.set_title(f"Subject {bundle.metadata.subject_id} PCA of Channel Log-Variance")
     ax.set_xlabel("PC1")
     ax.set_ylabel("PC2")
     ax.grid(True, linestyle="--", alpha=0.25)
@@ -85,7 +116,7 @@ def _plot_pca(bundle, output_path: Path) -> None:
 def _plot_tsne(bundle, output_path: Path) -> None:
     import matplotlib.pyplot as plt
 
-    X_flat = bundle.X.reshape(bundle.X.shape[0], -1)
+    features = _log_variance_features(bundle.X)
     perplexity = max(5, min(30, (bundle.X.shape[0] - 1) // 3))
     projection = TSNE(
         n_components=2,
@@ -93,7 +124,7 @@ def _plot_tsne(bundle, output_path: Path) -> None:
         learning_rate="auto",
         perplexity=perplexity,
         random_state=42,
-    ).fit_transform(X_flat)
+    ).fit_transform(features)
 
     fig, ax = plt.subplots(figsize=(6.5, 5.0))
     palette = {0: "#2f5d50", 1: "#c26d3a"}
@@ -108,7 +139,7 @@ def _plot_tsne(bundle, output_path: Path) -> None:
             label=class_name,
             color=palette.get(int(class_id), "#444444"),
         )
-    ax.set_title(f"Subject {bundle.metadata.subject_id} Epoch t-SNE")
+    ax.set_title(f"Subject {bundle.metadata.subject_id} t-SNE of Channel Log-Variance")
     ax.set_xlabel("t-SNE 1")
     ax.set_ylabel("t-SNE 2")
     ax.grid(True, linestyle="--", alpha=0.25)
@@ -123,17 +154,25 @@ def _plot_topomap(bundle, output_path: Path) -> None:
 
     eeg_picks = mne.pick_types(bundle.epochs.info, eeg=True, exclude="bads")
     info = mne.pick_info(bundle.epochs.info.copy(), eeg_picks)
-    left_power = np.log(bundle.X[bundle.y == 0][:, eeg_picks, :].var(axis=-1).mean(axis=0) + 1e-12)
-    right_power = np.log(bundle.X[bundle.y == 1][:, eeg_picks, :].var(axis=-1).mean(axis=0) + 1e-12)
+    tiny = np.finfo(float).tiny
+    X_uv = bundle.X[:, eeg_picks, :].astype(np.float64) * 1e6
+    left_power = np.log(np.maximum(X_uv[bundle.y == 0].var(axis=-1).mean(axis=0), tiny))
+    right_power = np.log(np.maximum(X_uv[bundle.y == 1].var(axis=-1).mean(axis=0), tiny))
     diff_power = left_power - right_power
 
-    fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.6))
-    mne.viz.plot_topomap(left_power, info, axes=axes[0], show=False, cmap="Reds")
-    axes[0].set_title("Left MI log-var")
-    mne.viz.plot_topomap(right_power, info, axes=axes[1], show=False, cmap="Blues")
-    axes[1].set_title("Right MI log-var")
-    mne.viz.plot_topomap(diff_power, info, axes=axes[2], show=False, cmap="RdBu_r")
-    axes[2].set_title("Left - Right")
+    # Shared data-driven scale for the two class maps; symmetric scale for the difference map.
+    shared_vlim = (float(min(left_power.min(), right_power.min())), float(max(left_power.max(), right_power.max())))
+    diff_abs = float(np.max(np.abs(diff_power)))
+    fig, axes = plt.subplots(1, 3, figsize=(11.5, 3.6))
+    panels = [
+        (left_power, "Reds", shared_vlim, "Left MI log-var ($\\mu$V$^2$)"),
+        (right_power, "Reds", shared_vlim, "Right MI log-var ($\\mu$V$^2$)"),
+        (diff_power, "RdBu_r", (-diff_abs, diff_abs), "Left - Right (log ratio)"),
+    ]
+    for ax, (values, cmap, vlim, title) in zip(axes, panels, strict=True):
+        im, _ = mne.viz.plot_topomap(values, info, axes=ax, show=False, cmap=cmap, vlim=vlim)
+        fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ax.set_title(title)
     fig.suptitle(f"Subject {bundle.metadata.subject_id} Channel Topography", y=1.02)
     fig.tight_layout()
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
@@ -180,9 +219,8 @@ def _plot_erds(bundle, output_path: Path) -> None:
     )
 
     times = power.times
-    baseline_mask = (times >= -0.5) & (times <= 0.0)
-    if not np.any(baseline_mask):
-        raise ValueError("ERDS export requires a pre-cue baseline window between -0.5s and 0.0s.")
+    display_mask = (times >= ERDS_DISPLAY[0]) & (times <= ERDS_DISPLAY[1])
+    shown_times = times[display_mask]
 
     fig, axes = plt.subplots(
         len(channel_names),
@@ -199,16 +237,14 @@ def _plot_erds(bundle, output_path: Path) -> None:
         for col_idx, class_id in enumerate(np.unique(bundle.y)):
             class_mask = bundle.y == class_id
             class_power = power.data[class_mask, row_idx, :, :]
-            baseline = class_power[:, :, baseline_mask].mean(axis=-1, keepdims=True)
-            normalized = 100.0 * (class_power - baseline) / (baseline + 1e-12)
-            mean_power = normalized.mean(axis=0)
+            mean_power = baseline_percent_change(class_power, times)[:, display_mask]
 
             ax = axes[row_idx, col_idx]
             im = ax.imshow(
                 mean_power,
                 aspect="auto",
                 origin="lower",
-                extent=[times[0], times[-1], freqs[0], freqs[-1]],
+                extent=[shown_times[0], shown_times[-1], freqs[0], freqs[-1]],
                 cmap=cmap,
                 vmin=-50,
                 vmax=50,
@@ -306,18 +342,20 @@ def _plot_riemann_3d(bundle, output_path: Path) -> None:
     plt.close(fig)
 
 
+def _out_of_fold_scores(pipeline, X: np.ndarray, y: np.ndarray) -> np.ndarray:
+    """LDA decision scores for each trial from a model that never saw that trial."""
+
+    cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+    scores = cross_val_predict(pipeline, X, y, cv=cv, method="decision_function")
+    return np.asarray(scores).reshape(-1)
+
+
 def _plot_riemann_lda_distribution(bundle, output_path: Path) -> None:
     import matplotlib.pyplot as plt
 
     eeg_picks = mne.pick_types(bundle.epochs.info, eeg=True, exclude="bads")
     X_eeg = bundle.X[:, eeg_picks, :]
-    pipeline = build_riemann_tangent_pipeline()
-    pipeline.fit(X_eeg, bundle.y)
-    tangent_features = pipeline.named_steps["tangent"].transform(
-        pipeline.named_steps["covariances"].transform(X_eeg)
-    )
-    tangent_features = pipeline.named_steps["scaler"].transform(tangent_features)
-    scores = pipeline.named_steps["lda"].decision_function(tangent_features)
+    scores = _out_of_fold_scores(build_riemann_tangent_pipeline(), X_eeg, bundle.y)
     if np.ndim(scores) > 1:
         scores = np.asarray(scores).reshape(-1)
 
@@ -336,7 +374,7 @@ def _plot_riemann_lda_distribution(bundle, output_path: Path) -> None:
             color=palette.get(int(class_id), "#444444"),
         )
     ax.axvline(0.0, color="#666666", linestyle="--", linewidth=1.1)
-    ax.set_title(f"Subject {bundle.metadata.subject_id} Riemann + LDA Score Distribution")
+    ax.set_title(f"Subject {bundle.metadata.subject_id} Riemann + LDA Scores (out-of-fold, 5-fold CV)")
     ax.set_xlabel("LDA decision score")
     ax.set_ylabel("Density")
     ax.grid(True, linestyle="--", alpha=0.25)
@@ -351,11 +389,7 @@ def _plot_csp_lda_distribution(bundle, output_path: Path) -> None:
 
     eeg_picks = mne.pick_types(bundle.epochs.info, eeg=True, exclude="bads")
     X_eeg = bundle.X[:, eeg_picks, :]
-    pipeline = build_csp_pipeline(n_components=4)
-    pipeline.fit(X_eeg, bundle.y)
-    csp_features = pipeline.named_steps["csp"].transform(X_eeg)
-    lda = pipeline.named_steps["lda"]
-    scores = lda.decision_function(csp_features)
+    scores = _out_of_fold_scores(build_csp_pipeline(n_components=4), X_eeg, bundle.y)
     if np.ndim(scores) > 1:
         scores = np.asarray(scores).reshape(-1)
 
@@ -374,7 +408,7 @@ def _plot_csp_lda_distribution(bundle, output_path: Path) -> None:
             color=palette.get(int(class_id), "#444444"),
         )
     ax.axvline(0.0, color="#666666", linestyle="--", linewidth=1.1)
-    ax.set_title(f"Subject {bundle.metadata.subject_id} CSP + LDA Score Distribution")
+    ax.set_title(f"Subject {bundle.metadata.subject_id} CSP + LDA Scores (out-of-fold, 5-fold CV)")
     ax.set_xlabel("LDA decision score")
     ax.set_ylabel("Density")
     ax.grid(True, linestyle="--", alpha=0.25)
@@ -420,7 +454,7 @@ def _plot_eegnet_saliency_topomap(bundle, output_path: Path) -> None:
         mne.viz.plot_topomap(saliency, info, axes=ax, show=False, cmap="Reds")
         ax.set_title(f"{INDEX_TO_LABEL[int(class_id)]} saliency")
 
-    fig.suptitle(f"Subject {bundle.metadata.subject_id} EEGNet Saliency Topomaps", y=1.02)
+    fig.suptitle(f"Subject {bundle.metadata.subject_id} EEGNet Saliency Topomaps (model trained on all trials)", y=1.02)
     fig.tight_layout()
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
@@ -448,7 +482,7 @@ def _plot_csp_feature_projection(bundle, output_path: Path) -> None:
             color=palette.get(int(class_id), "#444444"),
             label=class_name,
         )
-    ax.set_title(f"Subject {bundle.metadata.subject_id} CSP Feature Projection")
+    ax.set_title(f"Subject {bundle.metadata.subject_id} CSP Feature Projection (in-sample)")
     ax.set_xlabel("CSP component 1")
     ax.set_ylabel("CSP component 2")
     ax.grid(True, linestyle="--", alpha=0.25)
@@ -477,19 +511,15 @@ def _plot_sensorimotor_erds_summary(bundle, output_path: Path) -> None:
     )
 
     times = power.times
-    baseline_mask = (times >= -0.5) & (times <= 0.0)
-    if not np.any(baseline_mask):
-        raise ValueError("Sensorimotor ERDS summary requires a pre-cue baseline window.")
+    display_mask = (times >= ERDS_DISPLAY[0]) & (times <= ERDS_DISPLAY[1])
 
     mu_mask = (freqs >= 8.0) & (freqs <= 12.0)
     beta_mask = (freqs >= 13.0) & (freqs <= 30.0)
 
     def _band_percent_change(class_id: int, channel_idx: int, band_mask: np.ndarray) -> np.ndarray:
         class_mask = bundle.y == class_id
-        class_power = power.data[class_mask, channel_idx, :, :]
-        baseline = class_power[:, :, baseline_mask].mean(axis=-1, keepdims=True)
-        normalized = 100.0 * (class_power - baseline) / (baseline + 1e-12)
-        return normalized[:, band_mask, :].mean(axis=(0, 1))
+        class_power = power.data[class_mask, channel_idx, :, :][:, band_mask, :].mean(axis=1)
+        return baseline_percent_change(class_power, times)[display_mask]
 
     fig, axes = plt.subplots(2, 2, figsize=(10.5, 6.8), sharex=True, sharey=True)
     channel_to_col = {name: idx for idx, name in enumerate(available[:2])}
@@ -505,13 +535,14 @@ def _plot_sensorimotor_erds_summary(bundle, output_path: Path) -> None:
 
             ax.axhline(0.0, color="#666666", linewidth=1.0, linestyle="--", alpha=0.75)
             ax.axvline(0.0, color="#999999", linewidth=1.0, linestyle=":")
-            ax.plot(times, mu_curve, color=band_colors["Mu (8-12Hz)"], linewidth=2.2, label="Mu (8-12Hz)")
-            ax.plot(times, beta_curve, color=band_colors["Beta (13-30Hz)"], linewidth=2.2, label="Beta (13-30Hz)")
+            ax.axvspan(*ERDS_BASELINE, color="#999999", alpha=0.12, linewidth=0)
+            ax.plot(times[display_mask], mu_curve, color=band_colors["Mu (8-12Hz)"], linewidth=2.2, label="Mu (8-12Hz)")
+            ax.plot(times[display_mask], beta_curve, color=band_colors["Beta (13-30Hz)"], linewidth=2.2, label="Beta (13-30Hz)")
             ax.set_title(f"{class_names[int(class_id)]}\n{channel_name}", fontsize=11)
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Power change (%)")
             ax.grid(True, linestyle="--", alpha=0.25)
-            ax.set_xlim(times[0], times[-1])
+            ax.set_xlim(*ERDS_DISPLAY)
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 0.98))
@@ -541,9 +572,7 @@ def _collect_sensorimotor_curves(bundle) -> dict[tuple[int, str, str], np.ndarra
         decim=4,
     )
     times = power.times
-    baseline_mask = (times >= -0.5) & (times <= 0.0)
-    if not np.any(baseline_mask):
-        raise ValueError("Grand-average sensorimotor ERDS requires a pre-cue baseline window.")
+    display_mask = (times >= ERDS_DISPLAY[0]) & (times <= ERDS_DISPLAY[1])
 
     mu_mask = (freqs >= 8.0) & (freqs <= 12.0)
     beta_mask = (freqs >= 13.0) & (freqs <= 30.0)
@@ -553,11 +582,10 @@ def _collect_sensorimotor_curves(bundle) -> dict[tuple[int, str, str], np.ndarra
         for channel_name in available[:2]:
             channel_idx = available.index(channel_name)
             class_power = power.data[class_mask, channel_idx, :, :]
-            baseline = class_power[:, :, baseline_mask].mean(axis=-1, keepdims=True)
-            normalized = 100.0 * (class_power - baseline) / (baseline + 1e-12)
-            curves[(int(class_id), channel_name, "mu")] = normalized[:, mu_mask, :].mean(axis=(0, 1))
-            curves[(int(class_id), channel_name, "beta")] = normalized[:, beta_mask, :].mean(axis=(0, 1))
-    curves[(-1, "times", "times")] = times
+            for band_name, band_mask in (("mu", mu_mask), ("beta", beta_mask)):
+                band_power = class_power[:, band_mask, :].mean(axis=1)
+                curves[(int(class_id), channel_name, band_name)] = baseline_percent_change(band_power, times)[display_mask]
+    curves[(-1, "times", "times")] = times[display_mask]
     return curves
 
 
@@ -598,6 +626,7 @@ def export_grand_average_sensorimotor_erds(
 
             ax.axhline(0.0, color="#666666", linewidth=1.0, linestyle="--", alpha=0.75)
             ax.axvline(0.0, color="#999999", linewidth=1.0, linestyle=":")
+            ax.axvspan(*ERDS_BASELINE, color="#999999", alpha=0.12, linewidth=0)
             ax.plot(times, mu_mean, color=band_colors["mu"], linewidth=2.2, label="Mu (8-12Hz)")
             ax.fill_between(times, mu_mean - mu_sem, mu_mean + mu_sem, color=band_colors["mu"], alpha=0.18)
             ax.plot(times, beta_mean, color=band_colors["beta"], linewidth=2.2, label="Beta (13-30Hz)")
@@ -635,8 +664,8 @@ def _build_eda_bundle(subject_id: int, config: PreprocessingConfig | None = None
             raw,
             events,
             event_id=target_event_id,
-            tmin=-0.5,
-            tmax=cfg.tmax,
+            tmin=EDA_TMIN,
+            tmax=cfg.tmax + EDA_TMAX_PAD,
             baseline=None,
             preload=True,
             verbose=False,
@@ -646,8 +675,10 @@ def _build_eda_bundle(subject_id: int, config: PreprocessingConfig | None = None
 
     merged = mne.concatenate_epochs(epoch_list, add_offset=True, verbose=False)
     X_full, y = extract_epochs_array(merged, event_names=cfg.event_names)
-    trim_samples = int(round(abs(min(-0.5, 0.0)) * float(merged.info["sfreq"])))
-    X_task = X_full[:, :, trim_samples:]
+    sfreq = float(merged.info["sfreq"])
+    start = int(round((cfg.tmin - EDA_TMIN) * sfreq))
+    stop = start + int(round((cfg.tmax - cfg.tmin) * sfreq)) + 1
+    X_task = X_full[:, :, start:stop]  # same 0-4 s task window as the classification arrays
     bundle_metadata = SimpleNamespace(
         subject_id=subject_id,
         sfreq=float(merged.info["sfreq"]),

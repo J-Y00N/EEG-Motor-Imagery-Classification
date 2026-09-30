@@ -30,6 +30,7 @@ from eeg_motor_imagery_classification.experiments import (
     run_riemann_within_subject_cv,
 )
 from eeg_motor_imagery_classification.figures import export_report_assets
+from eeg_motor_imagery_classification.stats_report import export_statistics
 from eeg_motor_imagery_classification.train import TrainingConfig
 from eeg_motor_imagery_classification.utils import ensure_directory, to_jsonable, write_json, write_text
 
@@ -64,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
             "export_assets",
             "export_eda",
             "export_group_eda",
+            "export_stats",
         ),
     )
     parser.add_argument("--subjects", default=None, help="Comma-separated subject IDs. Default: 1-9")
@@ -130,6 +132,14 @@ def main() -> None:
         )
         if args.output_dir:
             _save_outputs(args.output_dir, result)
+        print(json.dumps(to_jsonable(result), indent=2))
+        return
+    if args.experiment == "export_stats":
+        output_dir = args.output_dir or "outputs/statistics"
+        result = export_statistics(
+            project_root=Path(__file__).resolve().parents[1],
+            output_dir=Path(__file__).resolve().parents[1] / output_dir,
+        )
         print(json.dumps(to_jsonable(result), indent=2))
         return
     if args.experiment == "export_eda":

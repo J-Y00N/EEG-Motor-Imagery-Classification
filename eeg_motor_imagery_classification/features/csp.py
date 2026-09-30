@@ -13,6 +13,9 @@ class LogVarianceVectorizer(BaseEstimator, TransformerMixin):
         return self
 
     def transform(self, X: np.ndarray) -> np.ndarray:
-        variances = np.var(X, axis=-1)
-        return np.log(np.maximum(variances, 1e-10))
+        # Signals are in volts (MOABB converts uV -> V), so band-limited variances are
+        # typically ~1e-11 V^2. A fixed floor such as 1e-10 clips every channel to the same
+        # constant, so only guard against exact zeros here.
+        variances = np.var(np.asarray(X, dtype=np.float64), axis=-1)
+        return np.log(np.maximum(variances, np.finfo(np.float64).tiny))
 

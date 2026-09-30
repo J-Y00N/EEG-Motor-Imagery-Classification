@@ -13,8 +13,14 @@ from eeg_motor_imagery_classification.evaluation.protocols import (
     metric_from_row,
     metric_from_summary,
     summarize_subject_results,
+    summarize_transfer_across_targets,
 )
-from eeg_motor_imagery_classification.evaluation.statistics import compare_paired_result_rows, paired_permutation_test
+from eeg_motor_imagery_classification.evaluation.statistics import (
+    compare_models_pairwise,
+    compare_paired_result_rows,
+    holm_correction,
+    paired_permutation_test,
+)
 
 __all__ = [
     "FoldMetrics",
@@ -22,11 +28,14 @@ __all__ = [
     "aggregate_transfer_seed_runs",
     "aggregate_fold_metrics",
     "compute_classification_metrics",
+    "compare_models_pairwise",
     "compare_paired_result_rows",
     "format_metric_markdown_table",
     "format_metric_table",
+    "holm_correction",
     "metric_from_row",
     "metric_from_summary",
     "paired_permutation_test",
     "summarize_subject_results",
+    "summarize_transfer_across_targets",
 ]
