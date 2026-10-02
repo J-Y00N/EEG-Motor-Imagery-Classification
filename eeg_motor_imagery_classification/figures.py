@@ -68,6 +68,15 @@ def load_saved_results(outputs_dir: str | Path) -> dict[str, tuple[dict[str, obj
     return loaded
 
 
+def display_path(path: Path, root: Path) -> str:
+    """Path relative to the project root (keeps user-specific absolute paths out of shared outputs)."""
+
+    try:
+        return Path(path).resolve().relative_to(Path(root).resolve()).as_posix()
+    except ValueError:
+        return Path(path).as_posix()
+
+
 def split_model_results(loaded: dict[str, tuple[dict[str, object], Path]], protocol: str) -> dict[str, dict[str, object]]:
     """Return {display model name: result} for "within", "loso", "cross_session", or "loso_matched"."""
 
@@ -484,7 +493,7 @@ def _export_report_assets_impl(root: Path, assets: Path) -> dict[str, object]:
     generated["pipeline_figure"] = str(assets / "evaluation_pipeline.png")
 
     loaded = load_saved_results(root / "outputs")
-    generated["sources"] = {key: str(path) for key, (_payload, path) in loaded.items()}
+    generated["sources"] = {key: display_path(path, root) for key, (_payload, path) in loaded.items()}
     generated["missing_sources"] = [key for key in RESULT_SOURCES if key not in loaded]
 
     within_models = split_model_results(loaded, "within")

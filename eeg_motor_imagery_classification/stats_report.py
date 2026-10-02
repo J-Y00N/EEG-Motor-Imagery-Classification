@@ -16,6 +16,7 @@ from eeg_motor_imagery_classification.evaluation.statistics import compare_model
 from eeg_motor_imagery_classification.figures import (
     SHOT_LABELS,
     describe,
+    display_path,
     load_saved_results,
     split_model_results,
     subject_accuracies,
@@ -195,7 +196,7 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
     out = ensure_directory(output_dir)
     loaded = load_saved_results(root / "outputs")
 
-    result: dict[str, object] = {"sources": {key: str(path) for key, (_payload, path) in loaded.items()}}
+    result: dict[str, object] = {"sources": {key: display_path(path, root) for key, (_payload, path) in loaded.items()}}
     lines = ["# Statistical Comparisons", "",
              "Units are subjects (transfer: target subjects, seeds averaged within target). SD uses ddof=1, "
              "CIs use the t distribution, paired sign-flip tests are exact, and p-values are Holm-adjusted within each family.", ""]

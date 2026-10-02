@@ -504,7 +504,7 @@ The full protocol is described in [`docs/reproduction.md`](reproduction.md) and 
   - From now on, every `result.json` records `created_at`.
 - **Settings.** The settings recorded in the primary result files match the plan: `300` max epochs, patience `30`, minimum `30` epochs, batch size `32` for cross-session and `64` for LOSO, seeds `42-46`, Apple MPS.
 - **Collapsed fits.** The four collapsed cross-session EEGNet fits (Section 4.2) were kept, as the plan requires; a post-hoc sensitivity check is reported separately.
-- **Additions after the primary results.** The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory. A training-size-matched follow-up was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run and was executed as specified. The commit that adds the addendum and the `created_at` field of the matched-LOSO result files record this order.
+- **Additions after the primary results.** The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory. A training-size-matched follow-up was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run and was executed as specified. The addendum was committed in `5d19d90` at `2026-10-02 20:29:39 +0900` (`11:29:39 UTC`); the matched-LOSO result files record `created_at` times of `11:33:36`, `11:33:57`, and `11:38:08 UTC` on the same day, after the commit.
 - **Other deviations.** None was recorded.
 
 ## References

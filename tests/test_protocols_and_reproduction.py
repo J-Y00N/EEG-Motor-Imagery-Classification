@@ -268,3 +268,4 @@ def test_addendum_comparisons_use_matched_loso_and_cross_session(tmp_path: Path)
     for item in stats["addendum"]:
         assert item["mean_difference"] == pytest.approx(0.05) and item["p_holm"] == pytest.approx(2 * 2 / 2**9)
     assert "loso_matched" in stats
+    assert all(not path.startswith("/") and path.startswith("outputs/") for path in stats["sources"].values())
