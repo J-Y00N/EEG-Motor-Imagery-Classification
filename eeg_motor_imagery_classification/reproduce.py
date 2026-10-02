@@ -59,6 +59,15 @@ STAGES: list[Stage] = [
     Stage("cross_session_eegnet", "primary", ["--experiment", "eegnet_cross_session", *EEGNET_SUBJECT], output="cross_session_eegnet", deterministic=False),
     Stage("loso_riemann", "primary", ["--experiment", "riemann_loso"], output="loso_riemann"),
     Stage("loso_eegnet", "primary", ["--experiment", "eegnet_loso", *EEGNET_POOLED], output="loso_eegnet", deterministic=False),
+    # Addendum (docs/analysis_plan_addendum.md): LOSO with 144 training trials, tested on session 2.
+    # Each seed draws a different training subsample; EEGNet uses the single-subject batch size because
+    # its training set has the size of one session.
+    Stage("loso_matched_classical", "addendum", ["--experiment", "classical_loso_matched", "--seed", "42", "--seed-list", EEGNET_SEEDS],
+          output="loso_matched_classical"),
+    Stage("loso_matched_riemann", "addendum", ["--experiment", "riemann_loso_matched", "--seed", "42", "--seed-list", EEGNET_SEEDS],
+          output="loso_matched_riemann"),
+    Stage("loso_matched_eegnet", "addendum", ["--experiment", "eegnet_loso_matched", *EEGNET_SUBJECT],
+          output="loso_matched_eegnet", deterministic=False),
     # Secondary (exploratory)
     Stage("within_classical", "secondary", ["--experiment", "classical_baseline", "--seed", "42"], output="within_subject_classical"),
     Stage("within_riemann", "secondary", ["--experiment", "riemann_baseline", "--seed", "42"], output="within_subject_riemann"),
@@ -80,7 +89,7 @@ STAGES: list[Stage] = [
     Stage("export_assets", "export", ["--experiment", "export_assets", "--output-dir", "docs/assets/generated"]),
     Stage("export_stats", "export", ["--experiment", "export_stats"]),
 ]
-GROUPS = ("primary", "secondary", "eda", "export")
+GROUPS = ("primary", "addendum", "secondary", "eda", "export")
 
 
 def _parse_cli_settings(args: list[str]) -> dict[str, object]:

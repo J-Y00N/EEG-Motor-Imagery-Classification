@@ -38,7 +38,19 @@ INTERACTION_COMPARISONS: list[tuple[str, str, str, str]] = [
     ("EEGNet", "Riemann + Tangent Space + LDA", "loso", "cross_session"),
     ("EEGNet", "FBCSP + LDA", "loso", "cross_session"),
 ]
-PROTOCOL_TITLES = {"within": "Within-Subject CV (sessions pooled)", "loso": "LOSO", "cross_session": "Cross-Session (session 1 -> 2)"}
+# Addendum (docs/analysis_plan_addendum.md), fixed before the matched runs: is EEGNet's larger
+# advantage in LOSO explained by the amount of training data? Same test set and training size as
+# cross-session; only the source of the training data differs. Holm across these two tests.
+ADDENDUM_COMPARISONS: list[tuple[str, str, str, str]] = [
+    ("EEGNet", "Riemann + Tangent Space + LDA", "loso_matched", "cross_session"),
+    ("EEGNet", "FBCSP + LDA", "loso_matched", "cross_session"),
+]
+PROTOCOL_TITLES = {
+    "within": "Within-Subject CV (sessions pooled)",
+    "loso": "LOSO",
+    "cross_session": "Cross-Session (session 1 -> 2)",
+    "loso_matched": "LOSO, 144 training trials (tested on session 2)",
+}
 
 
 def _primary_statistics(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[dict[str, object]]:
@@ -60,10 +72,13 @@ def _primary_statistics(loaded: dict[str, tuple[dict[str, object], Path]]) -> li
     return comparisons
 
 
-def _interaction_statistics(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[dict[str, object]]:
+def _interaction_statistics(
+    loaded: dict[str, tuple[dict[str, object], Path]],
+    comparisons_spec: list[tuple[str, str, str, str]] = INTERACTION_COMPARISONS,
+) -> list[dict[str, object]]:
     scores: dict[str, dict[str, float]] = {}
     pairs: list[tuple[str, str]] = []
-    for model_a, model_b, first, second in INTERACTION_COMPARISONS:
+    for model_a, model_b, first, second in comparisons_spec:
         diffs = {}
         for protocol in (first, second):
             models = split_model_results(loaded, protocol)
@@ -223,6 +238,17 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
                   "Per subject, the accuracy difference of the listed model pair under protocol A is compared with the same "
                   "difference under protocol B (exact paired sign-flip test, Holm across these tests). Not pre-specified.", "",
                   *_comparison_lines(interaction, with_setting=True), ""]
+
+    addendum = _interaction_statistics(loaded, ADDENDUM_COMPARISONS)
+    if addendum:
+        result["addendum"] = addendum
+        lines += ["## Addendum: training-size-matched LOSO vs cross-session", "",
+                  "Fixed in docs/analysis_plan_addendum.md before the matched runs. Both protocols use 144 training trials "
+                  "and the same test trials (session 2 of each subject); the training data come from the subject itself "
+                  "(cross-session) or from the other eight subjects (matched LOSO). Per subject, the model difference under "
+                  "matched LOSO is compared with the same difference under cross-session (exact paired sign-flip test, "
+                  "Holm across these two tests).", "",
+                  *_comparison_lines(addendum, with_setting=True), ""]
 
     lines += ["## Runtime (wall-clock fit + predict, machine-specific)", "", *_runtime_lines(loaded), ""]
     lines += ["## Environment", "", *_environment_lines(loaded), ""]

@@ -206,3 +206,65 @@ def test_cli_accepts_device_and_cross_session_experiments() -> None:
     assert args.device == "cuda" and args.experiment == "eegnet_cross_session"
     with pytest.raises(SystemExit):
         cli.build_parser().parse_args(["--experiment", "eegnet_loso", "--device", "tpu"])
+
+
+def _nine_subject_data(n_per_session: int = 40):
+    return _two_session_data(n_subjects=9, n_per_session=n_per_session, seed=3)
+
+
+def test_matched_loso_splits_are_balanced_and_use_test_session_only() -> None:
+    from eeg_motor_imagery_classification.experiments.matched_loso import matched_loso_splits
+
+    _, y, groups, sessions = _nine_subject_data()
+    splits = matched_loso_splits(y, groups, sessions, seed=42)
+    assert len(splits) == 9
+    for subject, train_idx, test_idx in splits:
+        assert len(train_idx) == 144 and subject not in set(groups[train_idx])
+        for source in set(groups[train_idx]):
+            for class_id in (0, 1):
+                assert np.sum((groups[train_idx] == source) & (y[train_idx] == class_id)) == 9
+        assert set(groups[test_idx]) == {subject} and set(sessions[test_idx]) == {1}
+    again = matched_loso_splits(y, groups, sessions, seed=42)
+    other = matched_loso_splits(y, groups, sessions, seed=43)
+    assert all(np.array_equal(a[1], b[1]) for a, b in zip(splits, again))
+    assert any(not np.array_equal(a[1], b[1]) for a, b in zip(splits, other))
+
+
+def test_matched_loso_runs_average_over_sampling_seeds() -> None:
+    from eeg_motor_imagery_classification.experiments import (
+        run_eegnet_matched_loso,
+        run_over_training_seeds,
+        run_riemann_matched_loso,
+    )
+    from eeg_motor_imagery_classification.train import TrainingConfig
+
+    X, y, groups, sessions = _nine_subject_data()
+    riemann = run_riemann_matched_loso(X, y, groups, sessions, seeds=(1, 2))
+    assert riemann["seeds"] == [1, 2] and riemann["summary"]["n"] == 9
+    assert np.sum(riemann["rows"][0]["confusion_matrix"]) == 2 * 40  # two seeds x 40 session-2 trials
+    cfg = TrainingConfig(epochs=1, batch_size=32, device="cpu", validation_split=0.25, min_epochs=1, patience=1)
+    eegnet = run_over_training_seeds(run_eegnet_matched_loso, X, y, groups, sessions, seeds=(1,), training_config=cfg)
+    assert eegnet["summary"]["n"] == 9
+
+
+def test_addendum_comparisons_use_matched_loso_and_cross_session(tmp_path: Path) -> None:
+    from eeg_motor_imagery_classification.stats_report import ADDENDUM_COMPARISONS, export_statistics
+
+    def write(name: str, payload: dict) -> None:
+        path = tmp_path / "outputs" / name / "result.json"
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    def rows(base: float) -> dict:
+        return {"summary": {}, "rows": [{"label": f"S{s}", "accuracy": base + 0.01 * s, "balanced_accuracy": 0, "macro_f1": 0} for s in range(1, 10)]}
+
+    for prefix, eegnet in (("cross_session", 0.70), ("loso_matched", 0.75)):
+        write(f"{prefix}_classical", {"raw_power": rows(0.6), "csp": rows(0.62), "fbcsp": rows(0.65)})
+        write(f"{prefix}_riemann", rows(0.66))
+        write(f"{prefix}_eegnet", rows(eegnet))
+    result = export_statistics(project_root=tmp_path, output_dir=tmp_path / "stats")
+    stats = json.loads(Path(result["statistics_json"]).read_text(encoding="utf-8"))
+    assert len(stats["addendum"]) == len(ADDENDUM_COMPARISONS) == 2
+    for item in stats["addendum"]:
+        assert item["mean_difference"] == pytest.approx(0.05) and item["p_holm"] == pytest.approx(2 * 2 / 2**9)
+    assert "loso_matched" in stats

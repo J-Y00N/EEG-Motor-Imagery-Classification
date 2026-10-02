@@ -9,6 +9,11 @@ from eeg_motor_imagery_classification.experiments.cross_session import (
     run_riemann_cross_session,
 )
 from eeg_motor_imagery_classification.experiments.loso import run_classical_loso, run_eegnet_loso
+from eeg_motor_imagery_classification.experiments.matched_loso import (
+    run_classical_matched_loso,
+    run_eegnet_matched_loso,
+    run_riemann_matched_loso,
+)
 from eeg_motor_imagery_classification.experiments.repeated import run_over_training_seeds
 from eeg_motor_imagery_classification.experiments.riemann_protocols import (
     run_riemann_loso,
@@ -26,6 +31,9 @@ from eeg_motor_imagery_classification.experiments.transfer import (
 )
 
 __all__ = [
+    "run_classical_matched_loso",
+    "run_eegnet_matched_loso",
+    "run_riemann_matched_loso",
     "run_classical_cross_session",
     "run_eegnet_cross_session",
     "run_over_training_seeds",

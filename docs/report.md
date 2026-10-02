@@ -14,7 +14,7 @@ The project asks whether the relative accuracy of a filter-bank spatial-filterin
 - a new subject (LOSO)
 - a new subject with a few calibration trials (transfer)
 
-Each claim in this report is tied to the protocol in which it was measured. Confirmatory claims are restricted to the comparisons fixed in [`docs/analysis_plan.md`](analysis_plan.md) before the corresponding results existed. All other results are exploratory.
+This revision corrects design errors of an earlier version of the project (Appendix B) and restricts additional analyses to those needed to answer this question. Each claim is tied to the protocol in which it was measured. Confirmatory claims are restricted to the comparisons fixed in [`docs/analysis_plan.md`](analysis_plan.md) before the corresponding results existed. All other results are exploratory.
 
 ## 2. Data and Method
 
@@ -131,7 +131,13 @@ Secondary analyses are Holm-adjusted within their own families and are explorato
 
 - None of the ten secondary pairwise comparisons is significant after Holm adjustment. The smallest uncorrected p-values are Raw Power vs FBCSP (`0.039`) and vs Riemann (`0.043`), both with `p_Holm = 0.39`.
 - EEGNet is at chance level for S2 and S5.
-- For S3, the between-seed standard deviation of `0.199` shows that EEGNet training is unstable when only `144` trials (about `115` after the validation split) are available: at least one training seed reached a much lower accuracy than the others.
+- For S3, the between-seed standard deviation of `0.199` comes from a single failed fit.
+  - Seed 46 stopped at epoch `31` with its best validation loss at epoch `1`, so early stopping restored weights close to the initialization and the fit reached an accuracy of `0.500`.
+  - The other four seeds reached `0.938` to `0.951`.
+- **Collapsed fits.** The same failure (best epoch `1`) occurred in `4` of the `45` cross-session EEGNet fits: S2 seeds 44 and 45, S5 seed 45, and S3 seed 46. It did not occur in any of the `45` LOSO fits.
+  - The failure is a property of recipe R when only `144` trials (about `115` after the validation split) are available: if the validation loss never improves after the first epoch, the recipe restores the first-epoch weights.
+  - As specified in the analysis plan, these fits are included in the primary analysis.
+- **Post-hoc sensitivity check (not part of the plan).** Excluding the four collapsed fits raises cross-session EEGNet to `0.7165`. P1 then becomes `−0.0435` (95% CI `−0.1185` to `+0.0314`, exact `p = 0.21`), so the conclusion of P1 is unchanged.
 
 ![Cross-session accuracy](assets/generated/cross_session_accuracy.png)
 
@@ -239,7 +245,7 @@ EEGNet's advantage over both non-deep models is larger in LOSO than in cross-ses
 - EEGNet trains on `2304` pooled trials in LOSO and on `144` single-subject trials cross-session.
 - The test sets contain both sessions in LOSO and only the second session cross-session.
 
-The result is therefore consistent with EEGNet benefiting from larger training sets as much as with a specific cross-subject advantage. The present design cannot separate the two.
+The result is therefore consistent with EEGNet benefiting from larger training sets as much as with a specific cross-subject advantage, and this comparison alone cannot separate the two. A follow-up that matches both the training-set size and the test trials of the two protocols was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run.
 
 ### 4.7 EEGNet training budget and variability
 
@@ -250,6 +256,8 @@ The result is therefore consistent with EEGNet benefiting from larger training s
 | Transfer `zero_shot` / `30_shot` | `0.7079` / `0.7612` | `0.7276` / `0.7940` |
 
 - The 50-epoch budget had stopped within-subject training before convergence. In a single-seed sensitivity run with a 300-epoch cap, all 45 within-subject fits stopped early, at a mean best epoch of `77`.
+- **Recipe R, cross-session**: `44` of `45` fits stopped early (mean best epoch `82.1`, mean executed epochs `112.0`).
+- **Recipe R, LOSO**: `35` of `45` fits stopped early (mean best epoch `213.1`). The other `10` reached the `300`-epoch cap with best epochs between `278` and `298`, so the cap still limited some LOSO fits. LOSO EEGNet accuracy may therefore be slightly underestimated, which is conservative for P3.
 - The between-seed standard deviation per subject ranges from `0.004` to `0.073` (pooled CV), `0.014` to `0.046` (LOSO), and `0.016` to `0.199` (cross-session).
 - Single-seed EEGNet results for individual subjects should not be interpreted.
 
@@ -369,8 +377,8 @@ Contralateral versus ipsilateral window mean, per subject (exact sign-flip test,
 **EEGNet training.** EEGNet results depend on the training budget and the seed:
 
 - Recipe R raised accuracy relative to the earlier 50-epoch runs.
-- With only `144` training trials, single training runs can fail (S3 cross-session, between-seed SD `0.199`).
-- Averaging over five seeds reduces the influence of such failures but does not remove the underlying instability.
+- With only `144` training trials, single training runs can fail: in `4` of `45` cross-session fits, the validation loss never improved after the first epoch and early stopping restored near-initial weights.
+- Averaging over five seeds reduces the influence of such failures but does not remove the underlying instability. Excluding the failed fits does not change the conclusion of P1.
 
 **ERD/ERS.** The time-frequency analysis confirms task-related mu and beta desynchronization after the cue in all conditions. Its lateralization is clear only for right-hand imagery in the beta band, which is in line with the moderate decoding accuracy of several subjects.
 
@@ -437,9 +445,13 @@ The full protocol is described in [`docs/reproduction.md`](reproduction.md) and 
 
 ## Appendix D. Adherence to the analysis plan
 
-- The primary comparisons, the EEGNet recipe, the seeds, and the test procedure were used as specified in [`docs/analysis_plan.md`](analysis_plan.md).
-- The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory.
-- No other deviation was recorded.
+- **Plan commit.** The analysis plan was committed in `1699c44` at `2026-10-02 14:25:32 +0900`, together with the code that implements the cross-session protocol and recipe R. The primary stages were run after this commit, following the documented workflow.
+  - The result files of that round do not store creation times, so this order cannot be checked from the result files alone.
+  - From now on, every `result.json` records `created_at`.
+- **Settings.** The settings recorded in the primary result files match the plan: `300` max epochs, patience `30`, minimum `30` epochs, batch size `32` for cross-session and `64` for LOSO, seeds `42-46`, Apple MPS.
+- **Collapsed fits.** The four collapsed cross-session EEGNet fits (Section 4.2) were kept, as the plan requires; a post-hoc sensitivity check is reported separately.
+- **Additions after the primary results.** The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory. A training-size-matched follow-up was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run.
+- **Other deviations.** None was recorded.
 
 ## References
 

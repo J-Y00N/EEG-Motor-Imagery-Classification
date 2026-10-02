@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -15,12 +16,14 @@ from eeg_motor_imagery_classification.evaluation.protocols import format_transfe
 from eeg_motor_imagery_classification.experiments import (
     run_classical_cross_session,
     run_classical_loso,
+    run_classical_matched_loso,
     run_classical_transfer_fbcsp,
     run_classical_transfer_fbcsp_repeated_sweep,
     run_classical_transfer_fbcsp_sweep,
     run_classical_within_subject_cv,
     run_eegnet_cross_session,
     run_eegnet_loso,
+    run_eegnet_matched_loso,
     run_eegnet_transfer,
     run_eegnet_transfer_repeated_sweep,
     run_eegnet_transfer_sweep,
@@ -28,6 +31,7 @@ from eeg_motor_imagery_classification.experiments import (
     run_over_training_seeds,
     run_riemann_cross_session,
     run_riemann_loso,
+    run_riemann_matched_loso,
     run_riemann_transfer,
     run_riemann_transfer_repeated_sweep,
     run_riemann_transfer_sweep,
@@ -69,6 +73,9 @@ def build_parser() -> argparse.ArgumentParser:
             "classical_cross_session",
             "riemann_cross_session",
             "eegnet_cross_session",
+            "classical_loso_matched",
+            "riemann_loso_matched",
+            "eegnet_loso_matched",
             "export_assets",
             "export_eda",
             "export_group_eda",
@@ -245,6 +252,12 @@ def main() -> None:
         result = run_riemann_cross_session(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions)
     elif args.experiment == "eegnet_cross_session":
         result = eegnet(run_eegnet_cross_session, data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions)
+    elif args.experiment == "classical_loso_matched":
+        result = run_classical_matched_loso(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions, sfreq=sfreq, seeds=seeds)
+    elif args.experiment == "riemann_loso_matched":
+        result = run_riemann_matched_loso(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions, seeds=seeds)
+    elif args.experiment == "eegnet_loso_matched":
+        result = eegnet(run_eegnet_matched_loso, data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions)
     elif args.experiment == "riemann_loso":
         result = run_riemann_loso(
             data_bundle.X,
@@ -343,6 +356,7 @@ def main() -> None:
             )
 
     if isinstance(result, dict):
+        result["created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
         result["environment"] = environment_info(training_config.device)
         result["config"] = {key: value for key, value in vars(args).items()}
 

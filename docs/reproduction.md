@@ -75,13 +75,14 @@ Stage groups:
 | Group | Stages | Purpose |
 |---|---|---|
 | `primary` | cross-session classical / Riemann / EEGNet, LOSO Riemann / EEGNet | pre-specified comparisons (`docs/analysis_plan.md`) |
+| `addendum` | training-size-matched LOSO, classical / Riemann / EEGNet | follow-up fixed in `docs/analysis_plan_addendum.md` |
 | `secondary` | within-subject CV, LOSO classical, transfer | exploratory results |
 | `eda` | subjects 1, 2, 8 and the grand average | figures and exact ERD/ERS summaries |
 | `export` | `export_assets`, `export_stats` | report tables, figures, statistics |
 
 Runner behaviour:
 
-- Each stage writes `outputs/<name>/result.json` and a log at `outputs/logs/<stage>.log`.
+- Each stage writes `outputs/<name>/result.json` (including `config`, `environment`, and `created_at`) and a log at `outputs/logs/<stage>.log`.
 - A stage is skipped when its result already exists with the same experiment settings.
   - A result produced with different settings is moved to `outputs/_archive/<name>-<timestamp>/` and the stage runs again.
   - Classical and Riemannian results from before settings were recorded are kept, because those pipelines are deterministic.

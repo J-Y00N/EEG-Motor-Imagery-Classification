@@ -22,6 +22,9 @@ RESULT_SOURCES: dict[str, tuple[str, ...]] = {
     "cross_session_classical": ("cross_session_classical",),
     "cross_session_riemann": ("cross_session_riemann",),
     "cross_session_eegnet": ("cross_session_eegnet",),
+    "loso_matched_classical": ("loso_matched_classical",),
+    "loso_matched_riemann": ("loso_matched_riemann",),
+    "loso_matched_eegnet": ("loso_matched_eegnet",),
     "transfer_fbcsp": (
         "transfer_classical_all_targets_seed42_43",
         "transfer_classical_all_targets_seed42_43_v2",
@@ -66,7 +69,7 @@ def load_saved_results(outputs_dir: str | Path) -> dict[str, tuple[dict[str, obj
 
 
 def split_model_results(loaded: dict[str, tuple[dict[str, object], Path]], protocol: str) -> dict[str, dict[str, object]]:
-    """Return {display model name: result} for "within", "loso", or "cross_session"."""
+    """Return {display model name: result} for "within", "loso", "cross_session", or "loso_matched"."""
 
     models: dict[str, dict[str, object]] = {}
     classical = loaded.get(f"{protocol}_classical")
@@ -490,6 +493,8 @@ def _export_report_assets_impl(root: Path, assets: Path) -> dict[str, object]:
     _export_protocol(assets, generated, within_models, prefix="within_subject", title="Within-Subject CV Accuracy (sessions pooled)", color="#2f5d50")
     _export_protocol(assets, generated, loso_models, prefix="loso", title="LOSO Accuracy", color="#385f8c")
     _export_protocol(assets, generated, cross_session_models, prefix="cross_session", title="Cross-Session Accuracy (session 1 -> 2)", color="#6b4c8a")
+    _export_protocol(assets, generated, split_model_results(loaded, "loso_matched"), prefix="loso_matched",
+                     title="LOSO, 144 Training Trials (tested on session 2)", color="#8a6b2f")
 
     for protocol, prefix, label in (("within", "within_subject", "Within-Subject"), ("loso", "loso", "LOSO"), ("cross_session", "cross_session", "Cross-Session")):
         eegnet = loaded.get(f"{protocol}_eegnet")

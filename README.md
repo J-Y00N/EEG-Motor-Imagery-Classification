@@ -18,7 +18,7 @@ Pre-specified results (9 subjects; exact paired sign-flip tests, Holm-adjusted a
 ## Report
 
 - full paper-style report: [docs/report.md](docs/report.md)
-- pre-specified analysis plan for the confirmatory comparisons: [docs/analysis_plan.md](docs/analysis_plan.md)
+- pre-specified analysis plan for the confirmatory comparisons: [docs/analysis_plan.md](docs/analysis_plan.md), and a follow-up fixed before it was run: [docs/analysis_plan_addendum.md](docs/analysis_plan_addendum.md)
 - reproduction protocol for macOS / Linux / Windows and MPS / CUDA / CPU: [docs/reproduction.md](docs/reproduction.md)
 - generated figures: [docs/assets/generated](docs/assets/generated)
 
@@ -102,6 +102,7 @@ python -m pytest -q
 - `riemann_loso`: leave-one-subject-out evaluation for tangent-space baseline
 - `riemann_transfer`: zero-shot and few-shot transfer for tangent-space baseline
 - `classical_cross_session`, `riemann_cross_session`, `eegnet_cross_session`: train on session 1 and test on session 2 of each subject
+- `classical_loso_matched`, `riemann_loso_matched`, `eegnet_loso_matched`: LOSO with 144 training trials from the other subjects, tested on session 2 (addendum)
 
 These protocols are intentionally separated so within-subject, subject-independent, and adaptation claims are not mixed together.
 
