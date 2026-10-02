@@ -1,0 +1,221 @@
+{
+  "summary": {
+    "n": 9,
+    "std_ddof": 1,
+    "accuracy_mean": 0.7584876543209877,
+    "accuracy_std": 0.15050302173296873,
+    "accuracy_sem": 0.05016767391098958,
+    "accuracy_ci95_low": 0.6428007908286716,
+    "accuracy_ci95_high": 0.8741745178133039,
+    "balanced_accuracy_mean": 0.7584876543209877,
+    "balanced_accuracy_std": 0.15050302173296873,
+    "balanced_accuracy_sem": 0.05016767391098958,
+    "balanced_accuracy_ci95_low": 0.6428007908286716,
+    "balanced_accuracy_ci95_high": 0.8741745178133039,
+    "macro_f1_mean": 0.7462071730189996,
+    "macro_f1_std": 0.1717671427290697,
+    "macro_f1_sem": 0.05725571424302323,
+    "macro_f1_ci95_low": 0.6141752592105201,
+    "macro_f1_ci95_high": 0.8782390868274792,
+    "confusion_matrix_sum": [
+      [
+        459,
+        189
+      ],
+      [
+        124,
+        524
+      ]
+    ]
+  },
+  "rows": [
+    {
+      "label": "S1",
+      "accuracy": 0.8611111111111112,
+      "balanced_accuracy": 0.8611111111111112,
+      "macro_f1": 0.8610038610038611,
+      "confusion_matrix": [
+        [
+          60,
+          12
+        ],
+        [
+          8,
+          64
+        ]
+      ]
+    },
+    {
+      "label": "S2",
+      "accuracy": 0.5694444444444444,
+      "balanced_accuracy": 0.5694444444444444,
+      "macro_f1": 0.569111969111969,
+      "confusion_matrix": [
+        [
+          43,
+          29
+        ],
+        [
+          33,
+          39
+        ]
+      ]
+    },
+    {
+      "label": "S3",
+      "accuracy": 0.9652777777777778,
+      "balanced_accuracy": 0.9652777777777778,
+      "macro_f1": 0.9652761032071377,
+      "confusion_matrix": [
+        [
+          69,
+          3
+        ],
+        [
+          2,
+          70
+        ]
+      ]
+    },
+    {
+      "label": "S4",
+      "accuracy": 0.7430555555555556,
+      "balanced_accuracy": 0.7430555555555556,
+      "macro_f1": 0.7429439861050804,
+      "confusion_matrix": [
+        [
+          52,
+          20
+        ],
+        [
+          17,
+          55
+        ]
+      ]
+    },
+    {
+      "label": "S5",
+      "accuracy": 0.6875,
+      "balanced_accuracy": 0.6875,
+      "macro_f1": 0.6871227849934818,
+      "confusion_matrix": [
+        [
+          52,
+          20
+        ],
+        [
+          25,
+          47
+        ]
+      ]
+    },
+    {
+      "label": "S6",
+      "accuracy": 0.7152777777777778,
+      "balanced_accuracy": 0.7152777777777778,
+      "macro_f1": 0.7102331288343559,
+      "confusion_matrix": [
+        [
+          61,
+          11
+        ],
+        [
+          30,
+          42
+        ]
+      ]
+    },
+    {
+      "label": "S7",
+      "accuracy": 0.5347222222222222,
+      "balanced_accuracy": 0.5347222222222222,
+      "macro_f1": 0.4329709080223333,
+      "confusion_matrix": [
+        [
+          8,
+          64
+        ],
+        [
+          3,
+          69
+        ]
+      ]
+    },
+    {
+      "label": "S8",
+      "accuracy": 0.9375,
+      "balanced_accuracy": 0.9375,
+      "macro_f1": 0.9373519601682216,
+      "confusion_matrix": [
+        [
+          64,
+          8
+        ],
+        [
+          1,
+          71
+        ]
+      ]
+    },
+    {
+      "label": "S9",
+      "accuracy": 0.8125,
+      "balanced_accuracy": 0.8125,
+      "macro_f1": 0.8098498557245561,
+      "confusion_matrix": [
+        [
+          50,
+          22
+        ],
+        [
+          5,
+          67
+        ]
+      ]
+    }
+  ],
+  "runtime_seconds": 1.237213750006049,
+  "environment": {
+    "python": "3.14.7",
+    "platform": "macOS-27.0-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "packages": {
+      "numpy": "2.5.3",
+      "scipy": "1.18.1",
+      "sklearn": "1.9.1",
+      "mne": "1.13.2",
+      "moabb": "1.7.2",
+      "pyriemann": "0.12",
+      "torch": "2.14.0",
+      "matplotlib": "3.11.2"
+    },
+    "torch_device_requested": "mps",
+    "cuda_available": false,
+    "cuda_version": null,
+    "cudnn_version": null,
+    "cuda_device_name": null,
+    "mps_available": true,
+    "deterministic_algorithms": false
+  },
+  "config": {
+    "experiment": "riemann_cross_session",
+    "subjects": null,
+    "target_subject": 2,
+    "eda_subject": 1,
+    "all_target_subjects": false,
+    "calibration_size": 0.5,
+    "epochs": 50,
+    "batch_size": 64,
+    "learning_rate": 0.001,
+    "validation_split": 0.2,
+    "patience": 10,
+    "min_epochs": 10,
+    "disable_early_stopping": false,
+    "seed": 42,
+    "seed_list": null,
+    "device": "mps",
+    "non_deterministic": false,
+    "output_dir": "outputs/cross_session_riemann",
+    "json": false
+  }
+}

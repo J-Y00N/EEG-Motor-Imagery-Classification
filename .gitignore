@@ -1,14 +1,24 @@
 .venv/
 .DS_Store
 .vscode/
+# outputs: keep only the files the report is built from
 outputs/*
 !outputs/.gitkeep
+!outputs/*/
+outputs/*/*
+!outputs/*/result.json
+!outputs/*/result.md
+!outputs/statistics/**
+outputs/_archive/
+outputs/logs/
 docs/assets/**/result.json
 docs/assets/**/result.md
 docs/assets/**/*.json
 docs/assets/**/*_eda_summary.json
 docs/assets/generated/*.csv
 docs/assets/generated/*.md
+docs/poster/*.pptx
+legacy/*
 *.egg-info/
 
 # Byte-compiled / optimized / DLL files

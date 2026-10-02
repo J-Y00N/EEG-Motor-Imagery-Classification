@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
@@ -13,25 +14,33 @@ from eeg_motor_imagery_classification.eda import export_grand_average_sensorimot
 from eeg_motor_imagery_classification.evaluation import format_metric_markdown_table, format_metric_table
 from eeg_motor_imagery_classification.evaluation.protocols import format_transfer_sweep_markdown
 from eeg_motor_imagery_classification.experiments import (
+    run_classical_cross_session,
     run_classical_loso,
+    run_classical_matched_loso,
     run_classical_transfer_fbcsp,
     run_classical_transfer_fbcsp_repeated_sweep,
     run_classical_transfer_fbcsp_sweep,
     run_classical_within_subject_cv,
+    run_eegnet_cross_session,
     run_eegnet_loso,
+    run_eegnet_matched_loso,
     run_eegnet_transfer,
     run_eegnet_transfer_repeated_sweep,
     run_eegnet_transfer_sweep,
     run_eegnet_within_subject_cv,
+    run_over_training_seeds,
+    run_riemann_cross_session,
     run_riemann_loso,
+    run_riemann_matched_loso,
     run_riemann_transfer,
     run_riemann_transfer_repeated_sweep,
     run_riemann_transfer_sweep,
     run_riemann_within_subject_cv,
 )
 from eeg_motor_imagery_classification.figures import export_report_assets
-from eeg_motor_imagery_classification.train import TrainingConfig
-from eeg_motor_imagery_classification.utils import ensure_directory, to_jsonable, write_json, write_text
+from eeg_motor_imagery_classification.stats_report import export_statistics
+from eeg_motor_imagery_classification.train import DEVICE_CHOICES, TrainingConfig, resolve_device
+from eeg_motor_imagery_classification.utils import environment_info, ensure_directory, to_jsonable, write_json, write_text
 
 
 def _parse_subjects(raw: str | None) -> tuple[int, ...]:
@@ -61,9 +70,16 @@ def build_parser() -> argparse.ArgumentParser:
             "riemann_baseline",
             "riemann_loso",
             "riemann_transfer",
+            "classical_cross_session",
+            "riemann_cross_session",
+            "eegnet_cross_session",
+            "classical_loso_matched",
+            "riemann_loso_matched",
+            "eegnet_loso_matched",
             "export_assets",
             "export_eda",
             "export_group_eda",
+            "export_stats",
         ),
     )
     parser.add_argument("--subjects", default=None, help="Comma-separated subject IDs. Default: 1-9")
@@ -86,7 +102,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--seed-list",
         default=None,
-        help="Comma-separated seeds for repeated transfer evaluation. Default: use --seed only.",
+        help=(
+            "Comma-separated seeds. Transfer: repeats the calibration split and EEGNet training per seed. "
+            "eegnet_baseline / eegnet_loso / eegnet_cross_session: repeats EEGNet training per seed with fixed "
+            "evaluation splits and averages per subject. Default: use --seed only."
+        ),
+    )
+    parser.add_argument(
+        "--device",
+        default="auto",
+        choices=DEVICE_CHOICES,
+        help="Torch device for EEGNet. auto = CUDA, then Apple MPS, then CPU. Use cpu for the most reproducible runs.",
     )
     parser.add_argument(
         "--non-deterministic",
@@ -132,12 +158,21 @@ def main() -> None:
             _save_outputs(args.output_dir, result)
         print(json.dumps(to_jsonable(result), indent=2))
         return
+    if args.experiment == "export_stats":
+        output_dir = args.output_dir or "outputs/statistics"
+        result = export_statistics(
+            project_root=Path(__file__).resolve().parents[1],
+            output_dir=Path(__file__).resolve().parents[1] / output_dir,
+        )
+        print(json.dumps(to_jsonable(result), indent=2))
+        return
     if args.experiment == "export_eda":
         output_dir = args.output_dir or f"docs/assets/eda_subject_{args.eda_subject}"
         result = export_subject_eda_assets(
             subject_id=args.eda_subject,
             output_dir=Path(__file__).resolve().parents[1] / output_dir,
             config=PreprocessingConfig(),
+            device=resolve_device(args.device),
         )
         if args.output_dir:
             _save_outputs(args.output_dir, result)
@@ -168,7 +203,16 @@ def main() -> None:
         min_epochs=args.min_epochs,
         seed=args.seed,
         deterministic=not args.non_deterministic,
+        device=resolve_device(args.device),
     )
+    sfreq = next(iter(data_bundle.metadata.values())).sfreq
+
+    def eegnet(run_fn, *run_args, **run_kwargs):
+        """Run an EEGNet protocol once, or once per --seed-list training seed."""
+
+        if len(seeds) > 1:
+            return run_over_training_seeds(run_fn, *run_args, seeds=seeds, training_config=training_config, **run_kwargs)
+        return run_fn(*run_args, training_config=training_config, **run_kwargs)
 
     if args.experiment == "classical_baseline":
         result = run_classical_within_subject_cv(
@@ -179,12 +223,12 @@ def main() -> None:
             random_state=args.seed,
         )
     elif args.experiment == "eegnet_baseline":
-        result = run_eegnet_within_subject_cv(
+        result = eegnet(
+            run_eegnet_within_subject_cv,
             data_bundle.X,
             data_bundle.y,
             groups=data_bundle.groups,
             random_state=args.seed,
-            training_config=training_config,
         )
     elif args.experiment == "riemann_baseline":
         result = run_riemann_within_subject_cv(
@@ -201,12 +245,19 @@ def main() -> None:
             sfreq=next(iter(data_bundle.metadata.values())).sfreq,
         )
     elif args.experiment == "eegnet_loso":
-        result = run_eegnet_loso(
-            data_bundle.X,
-            data_bundle.y,
-            data_bundle.groups,
-            training_config=training_config,
-        )
+        result = eegnet(run_eegnet_loso, data_bundle.X, data_bundle.y, data_bundle.groups)
+    elif args.experiment == "classical_cross_session":
+        result = run_classical_cross_session(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions, sfreq=sfreq)
+    elif args.experiment == "riemann_cross_session":
+        result = run_riemann_cross_session(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions)
+    elif args.experiment == "eegnet_cross_session":
+        result = eegnet(run_eegnet_cross_session, data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions)
+    elif args.experiment == "classical_loso_matched":
+        result = run_classical_matched_loso(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions, sfreq=sfreq, seeds=seeds)
+    elif args.experiment == "riemann_loso_matched":
+        result = run_riemann_matched_loso(data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions, seeds=seeds)
+    elif args.experiment == "eegnet_loso_matched":
+        result = eegnet(run_eegnet_matched_loso, data_bundle.X, data_bundle.y, data_bundle.groups, data_bundle.sessions)
     elif args.experiment == "riemann_loso":
         result = run_riemann_loso(
             data_bundle.X,
@@ -303,6 +354,11 @@ def main() -> None:
                 calibration_size=args.calibration_size,
                 random_state=args.seed,
             )
+
+    if isinstance(result, dict):
+        result["created_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        result["environment"] = environment_info(training_config.device)
+        result["config"] = {key: value for key, value in vars(args).items()}
 
     if args.output_dir:
         _save_outputs(args.output_dir, result)

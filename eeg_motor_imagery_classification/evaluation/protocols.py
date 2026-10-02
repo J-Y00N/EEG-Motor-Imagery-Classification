@@ -115,6 +115,8 @@ def aggregate_transfer_seed_runs(seed_runs: dict[str, dict[str, object]]) -> dic
         setting_label: summarize_subject_results(results) for setting_label, results in grouped_by_setting.items()
     }
 
+    # "aggregate_by_setting" summarises across shot settings (n = number of settings); use
+    # summarize_transfer_across_targets() for between-subject spread and intervals.
     return {
         "aggregate_by_setting": summarize_subject_results(aggregate_rows),
         "targets": target_rows,
@@ -122,6 +124,31 @@ def aggregate_transfer_seed_runs(seed_runs: dict[str, dict[str, object]]) -> dic
         "observations_by_setting": observations_by_setting,
         "n_seeds": len(seed_runs),
     }
+
+
+def summarize_transfer_across_targets(result: dict[str, object]) -> dict[str, dict[str, object]]:
+    """Per-setting summaries whose unit is the target subject.
+
+    Works for single-seed sweeps and repeated-seed sweeps (where each target row already
+    averages its seeds), so the resulting ``n`` is the number of targets. Note that
+    ``result["aggregate_by_setting"]["summary"]`` aggregates over shot settings instead and
+    should not be reported as a between-subject spread or confidence interval.
+    """
+
+    targets = result.get("targets")
+    if not isinstance(targets, dict) or not targets:
+        raise ValueError("Transfer result must contain a non-empty 'targets' dictionary.")
+
+    grouped: dict[str, list[SubjectResult]] = {}
+    for target_label, target_result in targets.items():
+        rows = target_result.get("rows") if isinstance(target_result, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("Each transfer target result must contain a 'rows' list.")
+        for row in rows:
+            grouped.setdefault(str(row["label"]), []).append(
+                SubjectResult(label=str(target_label), metrics=metric_from_row(row))
+            )
+    return {setting: summarize_subject_results(results) for setting, results in grouped.items()}
 
 
 def format_metric_table(result: dict[str, object]) -> str:

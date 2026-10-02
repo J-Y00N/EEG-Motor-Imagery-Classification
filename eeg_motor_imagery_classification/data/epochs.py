@@ -21,6 +21,7 @@ class EpochsBundle:
     groups: np.ndarray
     metadata: DatasetMetadata
     epochs: mne.Epochs
+    sessions: np.ndarray | None = None  # session index per trial, in recording order (0 = first session)
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class MultiSubjectEpochsBundle:
     y: np.ndarray
     groups: np.ndarray
     metadata: dict[int, DatasetMetadata]
+    sessions: np.ndarray | None = None
 
 
 def _extract_target_event_id(event_id: dict[str, int], config: PreprocessingConfig) -> dict[str, int]:
@@ -51,6 +53,8 @@ def extract_subject_epochs(
     epoch_list: list[mne.Epochs] = []
     used_session_names: list[str] = []
     used_run_names: list[str] = []
+    session_index = {name: index for index, name in enumerate(sessions)}  # MOABB keeps recording order
+    session_labels: list[np.ndarray] = []
 
     for session_name, run_name, raw in preprocess_runs(sessions, config=cfg):
         events, event_id = mne.events_from_annotations(raw, verbose=False)
@@ -68,6 +72,7 @@ def extract_subject_epochs(
         # Drop annotations before concatenation to avoid noisy MNE warnings.
         epochs.set_annotations(None)
         epoch_list.append(epochs)
+        session_labels.append(np.full(len(epochs), session_index[session_name], dtype=np.int64))
         used_session_names.append(session_name)
         used_run_names.append(f"{session_name}/{run_name}")
 
@@ -86,7 +91,10 @@ def extract_subject_epochs(
         ch_names=tuple(merged.ch_names),
         event_id={name: idx for idx, name in enumerate(cfg.event_names)},
     )
-    return EpochsBundle(X=X, y=y, groups=groups, metadata=metadata, epochs=merged)
+    session_array = np.concatenate(session_labels)
+    if len(session_array) != len(y):
+        raise ValueError("Session labels do not match the number of extracted epochs.")
+    return EpochsBundle(X=X, y=y, groups=groups, metadata=metadata, epochs=merged, sessions=session_array)
 
 
 def extract_epochs_array(epochs: mne.Epochs, event_names: tuple[str, ...] = ("left_hand", "right_hand")) -> tuple[np.ndarray, np.ndarray]:
@@ -122,4 +130,5 @@ def load_all_subject_epochs(
         y=np.concatenate([bundle.y for bundle in bundles], axis=0),
         groups=np.concatenate([bundle.groups for bundle in bundles], axis=0),
         metadata=metadata,
+        sessions=np.concatenate([bundle.sessions for bundle in bundles], axis=0),
     )

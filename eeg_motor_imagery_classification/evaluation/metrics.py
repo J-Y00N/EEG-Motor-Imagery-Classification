@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+from scipy import stats
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix, f1_score
 
 
@@ -30,38 +31,37 @@ def compute_classification_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> Fo
     )
 
 
+def _mean_std_ci(values: np.ndarray, confidence: float = 0.95) -> dict[str, float]:
+    """Mean, sample std (ddof=1), SEM, and a t-distribution confidence interval."""
+
+    n = len(values)
+    mean = float(values.mean())
+    if n < 2:
+        return {"mean": mean, "std": 0.0, "sem": 0.0, "ci_low": mean, "ci_high": mean}
+    std = float(values.std(ddof=1))
+    sem = std / np.sqrt(n)
+    half_width = float(stats.t.ppf(0.5 + confidence / 2.0, df=n - 1) * sem)
+    return {"mean": mean, "std": std, "sem": float(sem), "ci_low": mean - half_width, "ci_high": mean + half_width}
+
+
 def aggregate_fold_metrics(metrics: list[FoldMetrics]) -> dict[str, float | np.ndarray]:
-    """Aggregate fold-level metrics into report-friendly summaries."""
+    """Aggregate fold- or subject-level metrics into report-friendly summaries.
+
+    ``*_std`` is the sample standard deviation (ddof=1) across the aggregated units and
+    ``*_ci95_*`` is a t-distribution interval with ``n - 1`` degrees of freedom.
+    """
 
     if not metrics:
         raise ValueError("At least one fold metric is required for aggregation.")
 
-    accuracy = np.asarray([m.accuracy for m in metrics], dtype=float)
-    balanced = np.asarray([m.balanced_accuracy for m in metrics], dtype=float)
-    macro_f1 = np.asarray([m.macro_f1 for m in metrics], dtype=float)
-    confusion = np.sum([m.confusion_matrix for m in metrics], axis=0)
-
-    n = len(metrics)
-    accuracy_sem = float(accuracy.std(ddof=0) / np.sqrt(n))
-    balanced_sem = float(balanced.std(ddof=0) / np.sqrt(n))
-    macro_f1_sem = float(macro_f1.std(ddof=0) / np.sqrt(n))
-
-    return {
-        "n": n,
-        "accuracy_mean": float(accuracy.mean()),
-        "accuracy_std": float(accuracy.std(ddof=0)),
-        "accuracy_sem": accuracy_sem,
-        "accuracy_ci95_low": float(accuracy.mean() - 1.96 * accuracy_sem),
-        "accuracy_ci95_high": float(accuracy.mean() + 1.96 * accuracy_sem),
-        "balanced_accuracy_mean": float(balanced.mean()),
-        "balanced_accuracy_std": float(balanced.std(ddof=0)),
-        "balanced_accuracy_sem": balanced_sem,
-        "balanced_accuracy_ci95_low": float(balanced.mean() - 1.96 * balanced_sem),
-        "balanced_accuracy_ci95_high": float(balanced.mean() + 1.96 * balanced_sem),
-        "macro_f1_mean": float(macro_f1.mean()),
-        "macro_f1_std": float(macro_f1.std(ddof=0)),
-        "macro_f1_sem": macro_f1_sem,
-        "macro_f1_ci95_low": float(macro_f1.mean() - 1.96 * macro_f1_sem),
-        "macro_f1_ci95_high": float(macro_f1.mean() + 1.96 * macro_f1_sem),
-        "confusion_matrix_sum": confusion,
-    }
+    summary: dict[str, float | np.ndarray] = {"n": len(metrics), "std_ddof": 1}
+    for name in ("accuracy", "balanced_accuracy", "macro_f1"):
+        values = np.asarray([getattr(m, name) for m in metrics], dtype=float)
+        described = _mean_std_ci(values)
+        summary[f"{name}_mean"] = described["mean"]
+        summary[f"{name}_std"] = described["std"]
+        summary[f"{name}_sem"] = described["sem"]
+        summary[f"{name}_ci95_low"] = described["ci_low"]
+        summary[f"{name}_ci95_high"] = described["ci_high"]
+    summary["confusion_matrix_sum"] = np.sum([m.confusion_matrix for m in metrics], axis=0)
+    return summary
