@@ -17,6 +17,7 @@ docs/assets/**/*.json
 docs/assets/**/*_eda_summary.json
 docs/assets/generated/*.csv
 docs/assets/generated/*.md
+docs/poster/*.pptx
 legacy/*
 *.egg-info/
 

@@ -16,6 +16,12 @@ Pre-specified results (9 subjects; exact paired sign-flip tests, Holm-adjusted a
 - exploratory: EEGNet's advantage is larger in full LOSO than cross-session, but the two protocols also differ in training-set size (2304 vs 144 trials)
 - addendum (fixed before it was run; [docs/analysis_plan_addendum.md](docs/analysis_plan_addendum.md)): with 144 cross-subject training trials and the same test trials as cross-session, EEGNet is near chance (`0.534`) and its standing relative to Riemann/FBCSP no longer differs from cross-session (`p_Holm = 0.94`); its LOSO advantage depends on the large pooled training set
 
+## Poster
+
+[![Poster preview](docs/poster/EEG_project_poster.png)](docs/poster/EEG_project_poster.pdf)
+
+Poster summarising the refactored results: [PDF](docs/poster/EEG_project_poster.pdf), editable source [PPTX](docs/poster/EEG_project_poster.pptx). The poster made for the original project in 2025 reported results that the refactoring corrected; its numbers should not be cited.
+
 ## Report
 
 - full paper-style report: [docs/report.md](docs/report.md)
