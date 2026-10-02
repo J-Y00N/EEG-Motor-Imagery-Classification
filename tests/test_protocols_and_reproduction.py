@@ -151,6 +151,27 @@ def test_primary_comparisons_are_tested_as_one_holm_family(tmp_path: Path) -> No
         assert item["p_holm"] == pytest.approx(3 * 2 / 2**9)
     text = Path(result["statistics_md"]).read_text(encoding="utf-8")
     assert "Cross-Session (session 1 -> 2)" in text and "between-seed SD" in text
+    p1 = stats["primary"][0]  # EEGNet (0.75 + 0.01 s) - FBCSP (0.70 + 0.01 s) = +0.05 for every subject
+    assert p1["mean_difference"] == pytest.approx(0.05)
+    assert p1["diff_ci95_low"] == pytest.approx(0.05) and p1["diff_ci95_high"] == pytest.approx(0.05)
+    interaction = stats["interaction"]
+    assert len(interaction) == 1 and interaction[0]["n_pairs"] == 9  # no LOSO FBCSP result in this fixture
+    # EEGNet - Riemann: LOSO +0.10 vs cross-session +0.03 in every subject
+    assert interaction[0]["mean_difference"] == pytest.approx(0.07)
+    assert interaction[0]["p_value"] == pytest.approx(2 / 2**9)
+
+
+def test_paired_difference_interval_matches_t_interval() -> None:
+    from scipy import stats
+
+    from eeg_motor_imagery_classification.evaluation.statistics import paired_difference_interval
+
+    x = np.array([0.7, 0.8, 0.65, 0.9])
+    y = np.array([0.6, 0.75, 0.7, 0.8])
+    d = x - y
+    half = stats.t.ppf(0.975, 3) * d.std(ddof=1) / 2.0
+    low, high = paired_difference_interval(x, y)
+    assert low == pytest.approx(d.mean() - half) and high == pytest.approx(d.mean() + half)
 
 
 def test_runner_skips_current_results_and_reruns_stale_ones(tmp_path: Path, monkeypatch) -> None:

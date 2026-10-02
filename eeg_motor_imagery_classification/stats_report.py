@@ -32,6 +32,12 @@ PRIMARY_COMPARISONS: list[tuple[str, str, str]] = [
     ("cross_session", "Riemann + Tangent Space + LDA", "FBCSP + LDA"),
     ("loso", "EEGNet", "Riemann + Tangent Space + LDA"),
 ]
+# Exploratory: does a model difference change between protocols? For each subject the paired
+# difference (A - B) under the first protocol is compared with the same difference under the second.
+INTERACTION_COMPARISONS: list[tuple[str, str, str, str]] = [
+    ("EEGNet", "Riemann + Tangent Space + LDA", "loso", "cross_session"),
+    ("EEGNet", "FBCSP + LDA", "loso", "cross_session"),
+]
 PROTOCOL_TITLES = {"within": "Within-Subject CV (sessions pooled)", "loso": "LOSO", "cross_session": "Cross-Session (session 1 -> 2)"}
 
 
@@ -54,8 +60,33 @@ def _primary_statistics(loaded: dict[str, tuple[dict[str, object], Path]]) -> li
     return comparisons
 
 
+def _interaction_statistics(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[dict[str, object]]:
+    scores: dict[str, dict[str, float]] = {}
+    pairs: list[tuple[str, str]] = []
+    for model_a, model_b, first, second in INTERACTION_COMPARISONS:
+        diffs = {}
+        for protocol in (first, second):
+            models = split_model_results(loaded, protocol)
+            if model_a not in models or model_b not in models:
+                break
+            a, b = subject_accuracies(models[model_a]), subject_accuracies(models[model_b])
+            diffs[protocol] = {unit: a[unit] - b[unit] for unit in sorted(set(a) & set(b))}
+        else:
+            key = f"{model_a} - {model_b}"
+            scores[f"{key}@{first}"] = diffs[first]
+            scores[f"{key}@{second}"] = diffs[second]
+            pairs.append((f"{key}@{first}", f"{key}@{second}"))
+    comparisons = compare_models_pairwise(scores, pairs)
+    for item in comparisons:
+        item["setting"] = str(item["model_a"]).split("@")[0]
+        item["model_a"] = PROTOCOL_TITLES[str(item["model_a"]).split("@")[1]]
+        item["model_b"] = PROTOCOL_TITLES[str(item["model_b"]).split("@")[1]]
+    return comparisons
+
+
 def _environment_lines(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[str]:
-    lines = ["| Result | Python | torch | Device | CUDA device | Platform |", "|---|---|---|---|---|---|"]
+    # The torch device only applies to EEGNet; classical and Riemannian pipelines always run on the CPU.
+    lines = ["| Result | Python | torch | Torch device (EEGNet only) | CUDA device | Platform |", "|---|---|---|---|---|---|"]
     for key, (payload, _path) in loaded.items():
         env = payload.get("environment")
         if not isinstance(env, dict):
@@ -129,11 +160,12 @@ def _runtime_lines(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[st
 
 
 def _comparison_lines(comparisons: list[dict[str, object]], *, with_setting: bool = False) -> list[str]:
-    head = "| Setting | A | B | n | Mean diff (A-B) | Wins A/B | p (exact) | p (Holm) |" if with_setting else \
-        "| A | B | n | Mean diff (A-B) | Wins A/B | p (exact) | p (Holm) |"
+    head = "| Setting | A | B | n | Mean diff (A-B) | 95% CI of diff | Wins A/B | p (exact) | p (Holm) |" if with_setting else \
+        "| A | B | n | Mean diff (A-B) | 95% CI of diff | Wins A/B | p (exact) | p (Holm) |"
     lines = [head, "|" + "|".join(["---"] * (head.count("|") - 1)) + "|"]
     for item in comparisons:
         cells = [str(item["model_a"]), str(item["model_b"]), str(item["n_pairs"]), f"{item['mean_difference']:+.4f}",
+                 f"[{item.get('diff_ci95_low', float('nan')):+.4f}, {item.get('diff_ci95_high', float('nan')):+.4f}]",
                  f"{item['wins_x']}/{item['wins_y']}", f"{item['p_value']:.4f}", f"{item['p_holm']:.4f}"]
         if with_setting:
             cells.insert(0, str(item["setting"]))
@@ -183,6 +215,14 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
         for name, per_setting in stats["descriptives"].items():
             lines += [f"### {name}", "", *_descriptive_lines(per_setting), ""]
         lines += ["### Paired comparisons", "", *_comparison_lines(stats["comparisons"], with_setting=True), ""]
+
+    interaction = _interaction_statistics(loaded)
+    if interaction:
+        result["interaction"] = interaction
+        lines += ["## Exploratory: model difference between protocols", "",
+                  "Per subject, the accuracy difference of the listed model pair under protocol A is compared with the same "
+                  "difference under protocol B (exact paired sign-flip test, Holm across these tests). Not pre-specified.", "",
+                  *_comparison_lines(interaction, with_setting=True), ""]
 
     lines += ["## Runtime (wall-clock fit + predict, machine-specific)", "", *_runtime_lines(loaded), ""]
     lines += ["## Environment", "", *_environment_lines(loaded), ""]

@@ -2,13 +2,19 @@
 
 ## Abstract
 
-This report evaluates left-versus-right hand motor imagery decoding on BNCI 2014-001 with five model families (raw log-variance power, CSP, FBCSP, a Riemannian tangent-space model, and EEGNet) under three separated protocols: within-subject cross-validation, leave-one-subject-out (LOSO), and cross-subject transfer with zero- and few-shot calibration. All summaries use the subject as the unit of analysis, report sample standard deviations and t-based 95% confidence intervals, and compare models with exact paired sign-flip tests corrected with the Holm procedure. Mean accuracy ranks the models differently by protocol: FBCSP has the highest within-subject mean (0.818), EEGNet has the highest LOSO mean (0.707), and in transfer the ordering EEGNet > Riemann > FBCSP holds at every calibration budget. With nine subjects, however, none of the comparisons between the competitive models remains significant after multiple-comparison correction, so these rankings are descriptive rather than statistically established. EEGNet results were also sensitive to the training budget and varied between runs.
+This report compares five decoders of left- versus right-hand motor imagery on BNCI 2014-001 (nine subjects): raw log-variance power, CSP, FBCSP, a Riemannian tangent-space model, and EEGNet. Three comparisons were fixed in an analysis plan before the corresponding results were computed. In cross-session evaluation (train on one recording day, test on the other), EEGNet did not differ significantly from FBCSP: the mean difference was −5.5 percentage points (95% CI −13.0 to +2.1; Holm-adjusted p = 0.20). The Riemannian model and FBCSP were practically identical (−0.2 points, 95% CI −7.2 to +6.9; p = 0.98). In leave-one-subject-out (LOSO) evaluation, EEGNet was more accurate than the Riemannian model in all nine subjects (+9.5 points, 95% CI +5.5 to +13.6; Holm-adjusted p = 0.012); this comparison replicates a direction seen in earlier runs. An exploratory analysis suggests that EEGNet's advantage depends on the protocol, but the two protocols also differ strongly in the amount of training data.
 
-Keywords: EEG motor imagery classification, BNCI2014_001, CSP, FBCSP, Riemannian geometry, EEGNet, LOSO, transfer learning
+Keywords: EEG motor imagery classification, BNCI2014_001, CSP, FBCSP, Riemannian geometry, EEGNet, cross-session, LOSO, transfer learning
 
 ## 1. Introduction
 
-The project compares classical, geometric, and deep approaches to left-versus-right motor imagery classification under a single experimental design. Within-subject, subject-independent (LOSO), and calibration-aware transfer results answer different questions, so each claim in this report is tied to the protocol in which it was measured.
+The project asks whether the relative accuracy of a filter-bank spatial-filtering pipeline (FBCSP), a Riemannian tangent-space pipeline, and EEGNet depends on what a decoder has to generalize to:
+
+- a new recording session of the same subject (cross-session)
+- a new subject (LOSO)
+- a new subject with a few calibration trials (transfer)
+
+Each claim in this report is tied to the protocol in which it was measured. Confirmatory claims are restricted to the comparisons fixed in [`docs/analysis_plan.md`](analysis_plan.md) before the corresponding results existed. All other results are exploratory.
 
 ## 2. Data and Method
 
@@ -16,9 +22,10 @@ The project compares classical, geometric, and deep approaches to left-versus-ri
 
 - source: `BNCI2014_001` (BCI Competition IV 2a), loaded with MOABB 1.7.2
 - subjects `1-9`, two sessions per subject recorded on different days, six runs per session
-- classes: `left_hand` and `right_hand` only, giving `288` trials per subject (`144` per class)
+- classes: `left_hand` and `right_hand` only, giving `288` trials per subject (`144` per session, balanced classes)
 - `22` EEG channels at `250 Hz`; MOABB converts the signals from microvolts to volts
 - MOABB places each trial annotation at cue onset (its dataset interval is `[2, 6] s` from trial start), so `0 s` in this report is the cue
+- no subject or trial was excluded
 
 ### 2.2 Preprocessing
 
@@ -26,9 +33,8 @@ One preprocessing path is shared by all models:
 
 - `50 Hz` notch and `8-32 Hz` FIR band-pass filtering on the continuous runs
 - epochs from `0.0` to `4.0 s` after the cue, without baseline correction
-- both sessions of each subject are pooled
 
-Average referencing and ICA are available in the configuration but disabled for all reported results.
+Average referencing and ICA are available in the configuration but disabled.
 
 ### 2.3 Models
 
@@ -36,300 +42,404 @@ Average referencing and ICA are available in the configuration but disabled for 
 - **CSP + LDA**: four CSP components with log-power features, shrinkage LDA
 - **FBCSP + LDA**: six `4 Hz` bands between `8` and `32 Hz`, four CSP components per band, the eight best features by ANOVA F-score selected inside the training pipeline, shrinkage LDA. This is a simplified variant of Ang et al. (2008), which used a wider band range and mutual-information-based selection.
 - **Riemann + Tangent Space + LDA**: OAS covariance estimation, tangent-space projection at the Riemannian mean of the training covariances, standardization, shrinkage LDA
-- **EEGNet**: `F1 = 8`, `D = 2`, `F2 = 16`, temporal kernel of `64` samples, dropout `0.5`, applied to `250 Hz` input without resampling and without the max-norm constraints of the original architecture. Inputs are standardized per channel with statistics from the training data only. Training uses Adam (learning rate `1e-3`, batch size `64`) for at most `50` epochs, with early stopping on a stratified `20%` validation split taken from the training data (patience `10`, minimum `10` epochs) and restoration of the best validation epoch.
+- **EEGNet**: `F1 = 8`, `D = 2`, `F2 = 16`, temporal kernel of `64` samples, dropout `0.5`, applied to `250 Hz` input without resampling and without the max-norm constraints of the original architecture. Inputs are standardized per channel with training-data statistics. All reported EEGNet results use **recipe R** from the analysis plan:
+  - Adam with learning rate `1e-3`, at most `300` epochs
+  - early stopping on a stratified `20%` validation split of the training data (patience `30`, minimum `30` epochs), with the best validation epoch restored
+  - batch size `32` when training on one subject and `64` when training on pooled subjects
+  - five training seeds (`42-46`); per-subject accuracy is the mean over seeds, and evaluation splits are identical across seeds
+
+The classical and Riemannian models were not tuned. EEGNet runs used Apple MPS; the other models run on the CPU and are deterministic.
 
 ## 3. Evaluation
 
 ### 3.1 Protocols
 
-- **Within-subject CV**: stratified, shuffled 5-fold cross-validation inside each subject, with both sessions pooled. Per-subject accuracy is the mean over folds.
-- **LOSO**: each subject is held out once; the model is trained on the other eight subjects.
-- **Cross-subject transfer**: for each target subject, the target trials are split 50/50 (stratified) into a calibration pool and an evaluation set of `144` trials. A `k_shot` setting draws `k` trials per class from the calibration pool (`k = 5, 10, 20, 30`). The `zero_shot` model uses source subjects only.
-  - FBCSP and Riemann adapt by retraining on the source trials plus the `2k` target trials.
-  - EEGNet is pretrained on the source subjects and then fine-tuned on the `2k` target trials only (all layers, `20` epochs, learning rate `5e-4`, batch size `16`).
-  - The sweep is repeated with seeds `42` and `43`. A seed sets the calibration split, the shot sampling, and the EEGNet training seed. Seeds are averaged within each target before aggregation.
+- **Cross-session**: train on the first session of a subject (`144` trials) and test on the second session (`144` trials). This is the standard protocol for this dataset.
+- **Within-subject CV (sessions pooled)**: stratified, shuffled 5-fold cross-validation over all `288` trials of a subject. Trials from both sessions appear in training and test folds, so the result is a session-pooled reference, not a test of transfer to a new session.
+- **LOSO**: train on eight subjects (`2304` trials) and test on all `288` trials of the held-out subject.
+- **Cross-subject transfer**:
+  - For each target subject, the target trials are split 50/50 into a calibration pool and an evaluation set of `144` trials.
+  - A `k_shot` setting draws `k` calibration trials per class (`k = 5, 10, 20, 30`); `zero_shot` uses source subjects only.
+  - FBCSP and Riemann adapt by retraining on the source trials plus the `2k` target trials. EEGNet (recipe R, batch size `64`) is pretrained on the source subjects and then fine-tuned on the `2k` target trials only (all layers, `20` epochs, learning rate `5e-4`, batch size `16`).
+  - Seeds `42` and `43` set the calibration split, the shot sampling, and the EEGNet training seed. Seeds are averaged within each target.
 
 Because the adaptation mechanism differs between EEGNet and the other two models, transfer comparisons measure model and adaptation strategy together.
 
 ![Evaluation pipeline overview](assets/generated/evaluation_pipeline.png)
 
-*Figure 1. Evaluation pipeline. One preprocessing path feeds all models; within-subject CV and LOSO use all five models, and transfer uses FBCSP, Riemann, and EEGNet.*
+*Figure 1. Evaluation pipeline. One preprocessing path feeds all models; within-subject, cross-session, and LOSO evaluation use all five models, and transfer uses FBCSP, Riemann, and EEGNet.*
 
-### 3.2 Statistics
+### 3.2 Analysis plan and statistics
 
 - The unit of analysis is the subject (`n = 9`); in transfer it is the target subject after averaging seeds.
 - Summaries report the mean, the sample standard deviation (`ddof = 1`), and a t-distribution 95% confidence interval.
-- Models are compared with exact two-sided paired sign-flip permutation tests on per-subject accuracy.
-- p-values are Holm-adjusted within each family: all `10` model pairs for within-subject CV, all `10` pairs for LOSO, and `3` pairs at each of `5` settings (`15` tests) for transfer.
-- With `n = 9`, the smallest attainable exact p-value is `2 / 2^9 = 0.0039`. After Holm adjustment the smallest attainable value is therefore `0.039` for a family of `10` tests and `0.0586` for a family of `15` tests. No transfer comparison can reach `0.05` under this family definition, regardless of effect size.
+- Model differences are tested with exact two-sided paired sign-flip permutation tests on per-subject accuracy. They are reported with the mean paired difference and its t-based 95% confidence interval.
+
+Primary comparisons, fixed in the analysis plan and Holm-adjusted as one family of three tests:
+
+| ID | Protocol | Comparison |
+|---|---|---|
+| P1 | Cross-session | EEGNet vs FBCSP + LDA |
+| P2 | Cross-session | Riemann + Tangent Space + LDA vs FBCSP + LDA |
+| P3 | LOSO | EEGNet vs Riemann + Tangent Space + LDA |
+
+- P3 had been observed in the same direction in earlier single-seed runs, so it is a replication rather than an independent test.
+- With `n = 9`, the smallest attainable exact p-value is `2 / 2^9 = 0.0039`. For the three primary tests, the smallest attainable Holm-adjusted value is `0.0117`.
+
+Secondary analyses are Holm-adjusted within their own families and are exploratory:
+
+- all `10` model pairs per protocol
+- `15` transfer tests
+- `4` lateralization tests
+- `2` protocol-by-model tests
 
 ## 4. Results
 
-### 4.1 Within-subject CV
+### 4.1 Primary comparisons
 
-| Model | Subjects | Accuracy Mean ± SD | 95% CI |
-|---|---:|---:|---:|
-| Raw Power + LDA | `9` | `0.7099 ± 0.1331` | `[0.6075, 0.8122]` |
-| CSP + LDA | `9` | `0.7810 ± 0.1368` | `[0.6758, 0.8861]` |
-| FBCSP + LDA | `9` | `0.8183 ± 0.1383` | `[0.7120, 0.9246]` |
-| Riemann + Tangent Space + LDA | `9` | `0.7983 ± 0.1245` | `[0.7025, 0.8940]` |
-| EEGNet (`50` max epochs) | `9` | `0.6933 ± 0.1862` | `[0.5502, 0.8364]` |
+| ID | Protocol | Comparison | Mean difference | 95% CI | Subjects A / B higher | p (exact) | p (Holm) |
+|---|---|---|---:|---:|---:|---:|---:|
+| P1 | Cross-session | EEGNet − FBCSP | `−0.0546` | `[−0.1304, +0.0212]` | `3 / 6` | `0.1016` | `0.2031` |
+| P2 | Cross-session | Riemann − FBCSP | `−0.0015` | `[−0.0716, +0.0686]` | `4 / 4` (one tie) | `0.9844` | `0.9844` |
+| P3 | LOSO | EEGNet − Riemann | `+0.0954` | `[+0.0552, +0.1357]` | `9 / 0` | `0.0039` | `0.0117` |
 
-Paired comparisons:
+- **P1**: In cross-session evaluation, EEGNet is not significantly different from FBCSP. The point estimate favors FBCSP, and the confidence interval ranges from a 13-point disadvantage to a 2-point advantage for EEGNet, so the data do not establish equivalence either.
+- **P2**: The Riemannian model and FBCSP reach practically the same mean cross-session accuracy, with an interval of about ±7 points.
+- **P3**: In LOSO, EEGNet is more accurate than the Riemannian model for every subject, and the difference remains significant after Holm adjustment.
 
-- Raw Power is lower than CSP (`0/9` subjects higher, `p_Holm = 0.039`) and Riemann (`0/9`, `p_Holm = 0.039`). Its deficit to FBCSP (`-0.108`, `1/8`) gives `p = 0.0078`, `p_Holm = 0.063`.
-- CSP, FBCSP, and Riemann do not differ significantly (all `p_Holm >= 0.70`).
-- EEGNet has the lowest mean, but its differences to FBCSP (`-0.125`, `p_Holm = 0.35`) and Riemann (`-0.105`, `p_Holm = 0.22`) are not significant.
+### 4.2 Cross-session
 
-EEGNet per-subject accuracy (`50` max epochs):
+| Model | Accuracy Mean ± SD | 95% CI |
+|---|---:|---:|
+| Raw Power + LDA | `0.6898 ± 0.1381` | `[0.5837, 0.7959]` |
+| CSP + LDA | `0.7230 ± 0.1641` | `[0.5969, 0.8491]` |
+| FBCSP + LDA | `0.7600 ± 0.1600` | `[0.6370, 0.8830]` |
+| Riemann + Tangent Space + LDA | `0.7585 ± 0.1505` | `[0.6428, 0.8742]` |
+| EEGNet (recipe R) | `0.7054 ± 0.1810` | `[0.5662, 0.8446]` |
 
-| Subject | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Accuracy | `0.5552` | `0.4757` | `0.9236` | `0.7535` | `0.5420` | `0.5454` | `0.6111` | `0.9548` | `0.8785` |
-| Macro F1 | `0.4616` | `0.4745` | `0.9235` | `0.7524` | `0.4732` | `0.4883` | `0.5794` | `0.9548` | `0.8779` |
+| Subject | Raw Power | CSP | FBCSP | Riemann | EEGNet | EEGNet seed SD |
+|---|---:|---:|---:|---:|---:|---:|
+| S1 | `0.6944` | `0.7917` | `0.9028` | `0.8611` | `0.8389` | `0.0205` |
+| S2 | `0.5486` | `0.6042` | `0.5694` | `0.5694` | `0.5014` | `0.0227` |
+| S3 | `0.8819` | `0.8958` | `0.9444` | `0.9653` | `0.8556` | `0.1989` |
+| S4 | `0.6042` | `0.5972` | `0.6111` | `0.7431` | `0.6528` | `0.0461` |
+| S5 | `0.5417` | `0.5833` | `0.7847` | `0.6875` | `0.5000` | `0.0208` |
+| S6 | `0.6319` | `0.6667` | `0.5764` | `0.7153` | `0.5694` | `0.0517` |
+| S7 | `0.5972` | `0.5139` | `0.6389` | `0.5347` | `0.5750` | `0.0284` |
+| S8 | `0.8681` | `0.9514` | `0.9167` | `0.9375` | `0.9486` | `0.0188` |
+| S9 | `0.8403` | `0.9028` | `0.8958` | `0.8125` | `0.9069` | `0.0160` |
 
-Four subjects (S1, S2, S5, S6) are at or near chance, and for S1 and S5 macro F1 is clearly below accuracy, which indicates predictions biased toward one class. Section 4.4 shows that this is partly a training-budget effect.
+- None of the ten secondary pairwise comparisons is significant after Holm adjustment. The smallest uncorrected p-values are Raw Power vs FBCSP (`0.039`) and vs Riemann (`0.043`), both with `p_Holm = 0.39`.
+- EEGNet is at chance level for S2 and S5.
+- For S3, the between-seed standard deviation of `0.199` shows that EEGNet training is unstable when only `144` trials (about `115` after the validation split) are available: at least one training seed reached a much lower accuracy than the others.
 
-![Within-subject accuracy comparison](assets/generated/within_subject_accuracy.png)
+![Cross-session accuracy](assets/generated/cross_session_accuracy.png)
 
-*Figure 2. Within-subject mean accuracy with error bars showing the standard deviation across subjects.*
+*Figure 2. Cross-session mean accuracy (train on session 1, test on session 2). Error bars show the standard deviation across subjects.*
 
-![Within-subject FBCSP confusion matrix](assets/generated/within_subject_fbcsp_confusion.png)
+### 4.3 LOSO
 
-*Figure 3. Row-normalized confusion matrix for within-subject FBCSP, summed over subjects and folds.*
+| Model | Accuracy Mean ± SD | 95% CI |
+|---|---:|---:|
+| Raw Power + LDA | `0.6134 ± 0.0938` | `[0.5413, 0.6855]` |
+| CSP + LDA | `0.5907 ± 0.1148` | `[0.5025, 0.6789]` |
+| FBCSP + LDA | `0.5648 ± 0.0678` | `[0.5127, 0.6169]` |
+| Riemann + Tangent Space + LDA | `0.6285 ± 0.1039` | `[0.5486, 0.7083]` |
+| EEGNet (recipe R) | `0.7239 ± 0.1234` | `[0.6291, 0.8188]` |
 
-### 4.2 LOSO
+| Subject | Raw Power | CSP | FBCSP | Riemann | EEGNet | EEGNet seed SD |
+|---|---:|---:|---:|---:|---:|---:|
+| S1 | `0.6285` | `0.5139` | `0.6701` | `0.7153` | `0.8090` | `0.0185` |
+| S2 | `0.4792` | `0.5069` | `0.5243` | `0.4965` | `0.6139` | `0.0186` |
+| S3 | `0.7674` | `0.5590` | `0.5486` | `0.8090` | `0.8632` | `0.0364` |
+| S4 | `0.6285` | `0.6146` | `0.6458` | `0.5486` | `0.6222` | `0.0300` |
+| S5 | `0.5035` | `0.5174` | `0.5000` | `0.5139` | `0.5736` | `0.0247` |
+| S6 | `0.6042` | `0.5035` | `0.5000` | `0.6111` | `0.7333` | `0.0328` |
+| S7 | `0.5625` | `0.5729` | `0.5556` | `0.5972` | `0.6174` | `0.0464` |
+| S8 | `0.7292` | `0.8576` | `0.5035` | `0.7153` | `0.9160` | `0.0135` |
+| S9 | `0.6181` | `0.6701` | `0.6354` | `0.6493` | `0.7667` | `0.0280` |
 
-| Model | Subjects | Accuracy Mean ± SD | 95% CI |
-|---|---:|---:|---:|
-| Raw Power + LDA | `9` | `0.6134 ± 0.0938` | `[0.5413, 0.6855]` |
-| CSP + LDA | `9` | `0.5907 ± 0.1148` | `[0.5025, 0.6789]` |
-| FBCSP + LDA | `9` | `0.5648 ± 0.0678` | `[0.5127, 0.6169]` |
-| Riemann + Tangent Space + LDA | `9` | `0.6285 ± 0.1039` | `[0.5486, 0.7083]` |
-| EEGNet (`50` max epochs) | `9` | `0.7068 ± 0.1481` | `[0.5929, 0.8207]` |
-
-Paired comparisons:
-
-- EEGNet is higher than each of the other four models in `8` of `9` subjects. Uncorrected p-values are `0.012` (Riemann) and `0.020` (Raw Power, CSP, FBCSP), and Holm-adjusted values are `0.12` to `0.18`.
-- No other pair differs significantly.
-
-Among the non-deep models, Riemann has the highest mean and the subject-specific spatial filters of CSP and FBCSP transfer worst across subjects. These differences are not significant.
-
-EEGNet per-subject accuracy (`50` max epochs):
-
-| Subject | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Accuracy | `0.7917` | `0.6042` | `0.9236` | `0.5903` | `0.5208` | `0.6840` | `0.5764` | `0.9132` | `0.7569` |
-| Macro F1 | `0.7887` | `0.6041` | `0.9232` | `0.5203` | `0.4160` | `0.6711` | `0.5717` | `0.9127` | `0.7552` |
+- In the secondary LOSO family, EEGNet is higher than CSP (`9/9` subjects, `p_Holm = 0.039`) and Riemann (`9/9`, `p_Holm = 0.039`).
+- EEGNet is also higher than FBCSP and Raw Power in `8/9` subjects (`p_Holm = 0.063` each).
+- No pair of non-deep models differs significantly.
+- Several classical subject-independent models stay at chance for individual held-out subjects, for example FBCSP for S5, S6, and S8.
 
 ![LOSO accuracy comparison](assets/generated/loso_accuracy.png)
 
-*Figure 4. LOSO mean accuracy with error bars showing the standard deviation across held-out subjects.*
+*Figure 3. LOSO mean accuracy. Error bars show the standard deviation across held-out subjects.*
 
 ![LOSO EEGNet confusion matrix](assets/generated/loso_eegnet_confusion.png)
 
-*Figure 5. Row-normalized confusion matrix for LOSO EEGNet, summed over held-out subjects.*
+*Figure 4. Row-normalized confusion matrix for LOSO EEGNet, summed over held-out subjects and training seeds.*
 
-### 4.3 Cross-subject transfer
+### 4.4 Within-subject CV with pooled sessions
+
+| Model | Within-subject CV (pooled) | Cross-session | Difference |
+|---|---:|---:|---:|
+| Raw Power + LDA | `0.7099` | `0.6898` | `−0.0201` |
+| CSP + LDA | `0.7810` | `0.7230` | `−0.0580` |
+| FBCSP + LDA | `0.8183` | `0.7600` | `−0.0583` |
+| Riemann + Tangent Space + LDA | `0.7983` | `0.7585` | `−0.0398` |
+| EEGNet (recipe R) | `0.7459` | `0.7054` | `−0.0405` |
+
+- Every model is less accurate cross-session than in session-pooled CV.
+- The difference mixes two factors: transfer to a new recording day, and less training data per fit (`144` versus about `230` trials).
+- Within the pooled CV family, only Raw Power vs CSP and Raw Power vs Riemann are significant after Holm adjustment (`p_Holm = 0.039`). FBCSP is higher than EEGNet in `5` of `9` subjects (`p = 0.20`).
+
+![Within-subject accuracy comparison](assets/generated/within_subject_accuracy.png)
+
+*Figure 5. Within-subject CV mean accuracy with both sessions pooled. Error bars show the standard deviation across subjects.*
+
+![Within-subject FBCSP confusion matrix](assets/generated/within_subject_fbcsp_confusion.png)
+
+*Figure 6. Row-normalized confusion matrix for within-subject FBCSP, summed over subjects and folds.*
+
+### 4.5 Cross-subject transfer
 
 Mean accuracy across the nine target subjects (seeds averaged within target), with the standard deviation across targets:
 
-| Setting | FBCSP | Riemann | EEGNet |
+| Setting | FBCSP | Riemann | EEGNet (recipe R) |
 |---|---:|---:|---:|
-| `zero_shot` | `0.5664 ± 0.0650` | `0.6331 ± 0.1056` | `0.7079 ± 0.1455` |
-| `5_shot` | `0.5687 ± 0.0698` | `0.6671 ± 0.1208` | `0.7195 ± 0.1567` |
-| `10_shot` | `0.5745 ± 0.0710` | `0.6740 ± 0.1232` | `0.7469 ± 0.1611` |
-| `20_shot` | `0.5826 ± 0.0700` | `0.6968 ± 0.1218` | `0.7569 ± 0.1560` |
-| `30_shot` | `0.5887 ± 0.0830` | `0.7106 ± 0.1327` | `0.7612 ± 0.1570` |
+| `zero_shot` | `0.5664 ± 0.0650` | `0.6331 ± 0.1056` | `0.7276 ± 0.1205` |
+| `5_shot` | `0.5687 ± 0.0698` | `0.6671 ± 0.1208` | `0.7515 ± 0.1261` |
+| `10_shot` | `0.5745 ± 0.0710` | `0.6740 ± 0.1232` | `0.7650 ± 0.1363` |
+| `20_shot` | `0.5826 ± 0.0700` | `0.6968 ± 0.1218` | `0.7936 ± 0.1191` |
+| `30_shot` | `0.5887 ± 0.0830` | `0.7106 ± 0.1327` | `0.7940 ± 0.1268` |
 
-Paired comparisons per setting (`15` tests, Holm-adjusted):
-
-- EEGNet vs Riemann: EEGNet is higher in `7` to `8` of `9` targets at every setting (mean difference `+0.050` to `+0.075`, uncorrected `p = 0.016` to `0.039`, `p_Holm = 0.14` to `0.19`).
-- Riemann vs FBCSP: Riemann is higher in `7` to `8` targets (mean difference `+0.067` to `+0.122`, uncorrected `p = 0.008` to `0.148`, `p_Holm >= 0.10`).
-- EEGNet vs FBCSP: EEGNet is higher in `8` to `9` targets (mean difference `+0.142` to `+0.174`, uncorrected `p = 0.004` to `0.031`, `p_Holm = 0.059` to `0.19`).
-
-The direction EEGNet > Riemann > FBCSP is the same at every setting, but no single comparison is significant after correction (see Section 3.2 for the attainable minimum). Between `zero_shot` and `30_shot`, mean accuracy rises by `0.022` for FBCSP, `0.078` for Riemann, and `0.053` for EEGNet. For FBCSP and Riemann the calibration trials make up only about `0.4%` to `2.5%` of the pooled training set. The `zero_shot` setting uses the same source models as LOSO evaluated on half of each target's trials, so it is not independent evidence.
+- **EEGNet vs Riemann**: EEGNet is higher in all nine targets at every setting (mean difference `+0.083` to `+0.097`, exact `p = 0.0039`).
+- **EEGNet vs FBCSP**: EEGNet is higher in `8` to `9` targets (`+0.161` to `+0.211`).
+- **Riemann vs FBCSP**: Riemann is higher in `7` to `8` targets (`+0.067` to `+0.122`, `p = 0.012` to `0.148`).
+- **Multiple-comparison limit**: with `15` tests and `n = 9`, the smallest attainable Holm-adjusted p-value is `0.0586`, which is the value reached by most comparisons. The design cannot reach `0.05` here, so these results remain exploratory.
+- **Gains from calibration**: between `zero_shot` and `30_shot`, accuracy rises by `0.022` (FBCSP), `0.078` (Riemann), and `0.066` (EEGNet).
+- **Overlap with LOSO**: `zero_shot` uses source-only models evaluated on half of each target's trials, so it overlaps with LOSO.
 
 ![Transfer accuracy by calibration budget](assets/generated/transfer_repeated_accuracy.png)
 
-*Figure 6. Transfer accuracy by calibration budget. Lines show the mean across target subjects and shaded bands the t-based 95% confidence interval across targets.*
+*Figure 7. Transfer accuracy by calibration budget. Lines show the mean across target subjects and shaded bands the t-based 95% confidence interval across targets.*
 
 ![Riemann transfer confusion matrices](assets/generated/transfer_repeated_riemann_confusion.png)
 
-*Figure 7. Row-normalized confusion matrices for Riemann transfer, one panel per calibration setting, summed over targets and seeds.*
+*Figure 8. Row-normalized confusion matrices for Riemann transfer, one panel per calibration setting, summed over targets and seeds.*
 
 ![EEGNet transfer confusion matrices](assets/generated/transfer_repeated_eegnet_confusion.png)
 
-*Figure 8. Row-normalized confusion matrices for EEGNet transfer, one panel per calibration setting, summed over targets and seeds.*
+*Figure 9. Row-normalized confusion matrices for EEGNet transfer, one panel per calibration setting, summed over targets and seeds.*
 
-### 4.4 EEGNet training-budget sensitivity
+### 4.6 Exploratory: does EEGNet's advantage depend on the protocol?
 
-To test whether the `50`-epoch cap limits EEGNet, the within-subject and LOSO runs were repeated with at most `300` epochs, patience `30`, and a minimum of `30` epochs (within-subject batch size `32`, LOSO batch size `64`).
+That P3 is significant while P1 is not does not by itself show that the protocols differ. The following test therefore compares, per subject, a model difference under LOSO with the same difference under cross-session. This test was not pre-specified.
 
-| Protocol | `50` max epochs | `300` max epochs | Early stopping at `300` | Mean best / executed epoch at `300` |
-|---|---:|---:|---:|---:|
-| Within-subject | `0.6933` | `0.7423` | `45 / 45` fits | `77.2 / 107.2` |
-| LOSO | `0.7068` | `0.7218` | `7 / 9` fits | `214.9 / 239.3` |
+| Model difference | LOSO − cross-session | 95% CI | Subjects larger in LOSO | p (exact) | p (Holm, 2 tests) |
+|---|---:|---:|---:|---:|---:|
+| EEGNet − Riemann | `+0.1485` | `[+0.0752, +0.2219]` | `8 / 9` | `0.0078` | `0.0156` |
+| EEGNet − FBCSP | `+0.2137` | `[+0.0975, +0.3300]` | `8 / 9` | `0.0078` | `0.0156` |
 
-Per-subject accuracy with `300` max epochs:
+EEGNet's advantage over both non-deep models is larger in LOSO than in cross-session. The two protocols differ in more than the generalization target, however:
 
-| Subject | S1 | S2 | S3 | S4 | S5 | S6 | S7 | S8 | S9 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| Within-subject | `0.8924` | `0.4930` | `0.9583` | `0.7849` | `0.5351` | `0.5036` | `0.6490` | `0.9582` | `0.9062` |
-| LOSO | `0.8021` | `0.6146` | `0.8750` | `0.5972` | `0.5868` | `0.6840` | `0.6424` | `0.9340` | `0.7604` |
+- EEGNet trains on `2304` pooled trials in LOSO and on `144` single-subject trials cross-session.
+- The test sets contain both sessions in LOSO and only the second session cross-session.
 
-These runs support four observations.
+The result is therefore consistent with EEGNet benefiting from larger training sets as much as with a specific cross-subject advantage. The present design cannot separate the two.
 
-- Every within-subject fit stopped early before `300` epochs, at a mean best epoch of `77`, so the `50`-epoch cap stopped training before convergence.
-- The longer budget raises within-subject EEGNet from `0.693` to `0.742`, largely through S1 (`0.555` to `0.892`), with smaller gains in most other subjects. S2, S5, and S6 stay near chance, and S6 has macro F1 `0.418`.
-- LOSO fits continue for about `240` epochs on average and gain `0.015` in mean accuracy.
-- Even with the longer budget, within-subject EEGNet stays below the FBCSP mean (`0.818`). This comparison was not tested formally.
+### 4.7 EEGNet training budget and variability
 
-EEGNet also varies between runs. Relative to an earlier run of the same `50`-epoch configuration on a different environment, within-subject S1 changed from `0.706` to `0.555` and LOSO S9 from `0.594` to `0.757`, while the means moved by about `0.01`. It is unknown how much of this comes from library versions, the compute device (Apple MPS here), or nondeterministic kernels. Single-run EEGNet results for individual subjects should therefore be read with caution.
+| Protocol | Earlier run: 1 seed, 50 max epochs | Recipe R: 5 seeds, 300 max epochs |
+|---|---:|---:|
+| Within-subject CV (pooled) | `0.6933` | `0.7459` |
+| LOSO | `0.7068` | `0.7239` |
+| Transfer `zero_shot` / `30_shot` | `0.7079` / `0.7612` | `0.7276` / `0.7940` |
 
-### 4.5 Exploratory analysis
+- The 50-epoch budget had stopped within-subject training before convergence. In a single-seed sensitivity run with a 300-epoch cap, all 45 within-subject fits stopped early, at a mean best epoch of `77`.
+- The between-seed standard deviation per subject ranges from `0.004` to `0.073` (pooled CV), `0.014` to `0.046` (LOSO), and `0.016` to `0.199` (cross-session).
+- Single-seed EEGNet results for individual subjects should not be interpreted.
 
-The exploratory figures use epochs from `-1.5` to `4.5 s` around the cue, so that the reference interval and the task interval stay away from the wavelet edge effects at both ends of each epoch. Time-frequency power uses Morlet wavelets (`8-30 Hz`, `n_cycles = f / 2`). Event-related desynchronization and synchronization (ERD/ERS) follow the classical definition (Pfurtscheller and Lopes da Silva, 1999): power is first averaged over trials and then expressed relative to the mean of the pre-cue reference interval `[-1.0, -0.2] s`:
+### 4.8 Exploratory EEG analysis
+
+The exploratory figures use epochs from `-1.5` to `4.5 s` around the cue, so that the reference interval and the analysed task interval stay away from wavelet edge effects. Time-frequency power uses Morlet wavelets (`8-30 Hz`, `n_cycles = f / 2`). ERD/ERS follows the classical definition (Pfurtscheller and Lopes da Silva, 1999): power is averaged over trials first and then expressed relative to the pre-cue reference interval `[-1.0, -0.2] s`:
 
 $$
 \mathrm{ERD/ERS}(t, f) = 100 \times \frac{\bar{P}(t, f) - \bar{R}(f)}{\bar{R}(f)}
 $$
 
-where $\bar{P}(t, f)$ is the trial-averaged power and $\bar{R}(f)$ its mean over the reference interval. Negative values (ERD) mean less power than during the reference interval. Normalizing each trial by its own short reference interval before averaging is avoided because it biases the result upward.
+Here $\bar{P}(t, f)$ is the trial-averaged power and $\bar{R}(f)$ its mean over the reference interval; negative values (ERD) mean less power than before the cue. The numerical summaries below report two values per curve:
+
+- the mean over the pre-defined window `0.5-2.5 s` after the cue
+- the most negative value (peak ERD) in `0-4 s`, with its latency
+
+All values come from the exported files (`*_erds_summary.md`, `*_erds_curves.csv`).
+
+Grand average over the nine subjects:
+
+| Class | Channel | Side | Band | Window mean (%) | Peak ERD (%) | Peak latency (s) |
+|---|---|---|---|---:|---:|---:|
+| Left hand | C4 | contralateral | mu | `−17.2` | `−27.3` | `0.61` |
+| Left hand | C3 | ipsilateral | mu | `−13.3` | `−25.1` | `1.57` |
+| Left hand | C4 | contralateral | beta | `−10.5` | `−16.2` | `1.51` |
+| Left hand | C3 | ipsilateral | beta | `−9.9` | `−16.2` | `1.52` |
+| Right hand | C3 | contralateral | mu | `−17.9` | `−33.6` | `0.68` |
+| Right hand | C4 | ipsilateral | mu | `−11.1` | `−21.5` | `0.69` |
+| Right hand | C3 | contralateral | beta | `−13.5` | `−20.5` | `0.52` |
+| Right hand | C4 | ipsilateral | beta | `−5.6` | `−11.4` | `0.50` |
+
+Contralateral versus ipsilateral window mean, per subject (exact sign-flip test, Holm across four tests):
+
+| Class | Band | Contra − ipsi (%) | Subjects with stronger contralateral ERD | p (exact) | p (Holm) |
+|---|---|---:|---:|---:|---:|
+| Left hand | mu | `−3.9` | `6 / 9` | `0.1523` | `0.4570` |
+| Left hand | beta | `−0.6` | `5 / 9` | `0.8164` | `0.8164` |
+| Right hand | mu | `−6.8` | `6 / 9` | `0.2773` | `0.5547` |
+| Right hand | beta | `−7.9` | `9 / 9` | `0.0039` | `0.0156` |
+
+- Motor imagery produces mu and beta ERD over both hemispheres. The per-subject window means range from `−5.6%` to `−17.9%`, with standard errors of `2.9` to `7.8` points.
+- The ERD tends to be stronger over the hemisphere contralateral to the imagined hand. This lateralization is significant only for right-hand imagery in the beta band; the mu-band differences vary between subjects.
+- Mu ERD peaks around `0.6-0.7 s` after the cue, except for left-hand imagery at C3, which peaks at `1.57 s`.
 
 ![Subject 1 PSD by class](assets/eda_subject_1/subject_1_psd.png)
 
-*Figure 9. Subject 1 class-wise power spectral density (Welch), averaged over channels and trials, in dB relative to 1 µV²/Hz.*
+*Figure 10. Subject 1 class-wise power spectral density (Welch), averaged over channels and trials, in dB relative to 1 µV²/Hz.*
 
 ![Subject 1 PCA](assets/eda_subject_1/subject_1_pca.png)
 
-*Figure 10. Subject 1 trials projected onto the first two principal components of standardized channel log-variance features.*
+*Figure 11. Subject 1 trials projected onto the first two principal components of standardized channel log-variance features.*
 
 ![Subject 1 t-SNE](assets/eda_subject_1/subject_1_tsne.png)
 
-*Figure 11. Subject 1 t-SNE embedding of the same channel log-variance features. Unsupervised embeddings are shown for visual inspection only.*
+*Figure 12. Subject 1 t-SNE embedding of the same channel log-variance features, for visual inspection only.*
 
 ![Subject 1 channel topography](assets/eda_subject_1/subject_1_topomap.png)
 
-*Figure 12. Subject 1 mean log-variance per channel for left- and right-hand imagery, and their difference (log ratio). The left-minus-right difference is positive over the left hemisphere and negative over the right, with its largest magnitude (about ±0.1) over centro-parietal and parietal sites rather than directly at C3 and C4.*
+*Figure 13. Subject 1 mean log-variance per channel for left- and right-hand imagery and their difference (natural-log ratio, left minus right). The difference is largest at CP3 (`+0.109`, about 11% more variance during left- than right-hand imagery), P1 (`+0.082`), and FC3 (`+0.074`), and most negative at CP4 (`−0.063`, about 6% less) and P2 (`−0.047`). This matches lower power over the hemisphere contralateral to the imagined hand, with the largest effect at centro-parietal rather than central electrodes. Values are in `subject_1_topomap_values.csv`.*
 
 ![Subject 1 ERD/ERS maps](assets/eda_subject_1/subject_1_erds.png)
 
-*Figure 13. Subject 1 ERD/ERS time-frequency maps at C3 and C4 for each class, relative to the pre-cue reference interval.*
+*Figure 14. Subject 1 ERD/ERS time-frequency maps at C3 and C4 for each class, relative to the pre-cue reference interval.*
 
 ![Subject 1 sensorimotor ERD/ERS summary](assets/eda_subject_1/subject_1_sensorimotor_erds.png)
 
-*Figure 14. Subject 1 mu (8-12 Hz) and beta (13-30 Hz) ERD/ERS at C3 and C4. The grey area marks the reference interval and the dotted line the cue. After the cue, mu power falls by roughly 20-30% at C4 during left-hand imagery and by up to about 39% at C3 during right-hand imagery; beta changes are smaller.*
+*Figure 15. Subject 1 mu (8-12 Hz) and beta (13-30 Hz) ERD/ERS at C3 and C4; the grey area marks the reference interval and the dotted line the cue.*
+
+- Right-hand imagery: mu ERD at contralateral C3 has a window mean of `−24.7%` and a peak of `−38.9%` at `0.74 s`; ipsilateral C4 shows `−16.8%` and `−31.5%`.
+- Left-hand imagery: contralateral C4 shows `−19.2%` and `−29.9%` at `0.71 s`; ipsilateral C3 shows `−13.0%` and `−24.9%`.
+- Beta window means lie between `−6.2%` and `+4.1%`.
 
 ![Subject 2 sensorimotor ERD/ERS summary](assets/eda_subject_2/subject_2_sensorimotor_erds.png)
 
-*Figure 15. Subject 2 mu and beta ERD/ERS at C3 and C4. Subject 2 is one of the subjects that most models decode close to chance.*
+*Figure 16. Subject 2 mu and beta ERD/ERS at C3 and C4. Subject 2 is decoded close to chance by most models in most protocols.*
 
 ![Subject 8 sensorimotor ERD/ERS summary](assets/eda_subject_8/subject_8_sensorimotor_erds.png)
 
-*Figure 16. Subject 8 mu and beta ERD/ERS at C3 and C4. Subject 8 is one of the best-decoded subjects across protocols.*
+*Figure 17. Subject 8 mu and beta ERD/ERS at C3 and C4. Subject 8 is one of the best-decoded subjects for most models and protocols.*
 
 ![Grand-average sensorimotor ERD/ERS summary](assets/group_eda/grand_average_sensorimotor_erds.png)
 
-*Figure 17. Grand-average mu and beta ERD/ERS across the nine subjects (shaded: ± standard error across subjects).*
-
-Approximate values read from Figure 17:
-
-- After the cue, mu and beta power decrease at both electrodes, and the decrease is stronger over the hemisphere contralateral to the imagined hand.
-- For right-hand imagery, mu ERD reaches about -33% at C3 versus about -21% at C4.
-- For left-hand imagery, mu ERD reaches about -27% at C4 versus about -20% at C3.
-- The mu ERD weakens after about 2 s, and a short positive deflection right after the cue may reflect the visual cue response.
+*Figure 18. Grand-average mu and beta ERD/ERS across the nine subjects; shaded bands show the standard error across subjects. Values are in the tables above.*
 
 ![Subject 1 classical spatial patterns](assets/eda_subject_1/subject_1_classical_patterns.png)
 
-*Figure 18. Subject 1 CSP patterns (components 1 and 4) and the first FBCSP pattern of the lowest and highest frequency bands, fitted on all trials of the subject. The FBCSP panels show fixed bands, not necessarily the selected features.*
+*Figure 19. Subject 1 CSP patterns (components 1 and 4) and the first FBCSP pattern of the lowest and highest frequency bands, fitted on all trials of the subject. The FBCSP panels show fixed bands, not necessarily the selected features.*
 
 ![Subject 1 Riemann tangent-space view](assets/eda_subject_1/subject_1_riemann_3d.png)
 
-*Figure 19. Subject 1 tangent-space features projected onto three principal components, fitted on all trials (qualitative view).*
+*Figure 20. Subject 1 tangent-space features projected onto three principal components, fitted on all trials (qualitative view).*
 
 ![Subject 1 Riemann + LDA out-of-fold scores](assets/eda_subject_1/subject_1_riemann_lda_distribution.png)
 
-*Figure 20. Subject 1 Riemann + LDA decision scores, where each trial is scored by a model trained without it (5-fold cross-validation).*
+*Figure 21. Subject 1 Riemann + LDA decision scores, each obtained from a model trained without that trial (5-fold cross-validation).*
 
 ![Subject 1 CSP + LDA out-of-fold scores](assets/eda_subject_1/subject_1_csp_lda_distribution.png)
 
-*Figure 21. Subject 1 CSP + LDA decision scores obtained out-of-fold in the same way as Figure 20.*
+*Figure 22. Subject 1 CSP + LDA decision scores, obtained out-of-fold in the same way as Figure 21.*
 
 ![Subject 1 CSP feature projection](assets/eda_subject_1/subject_1_csp_projection.png)
 
-*Figure 22. Subject 1 trials in the space of the first two CSP components, fitted and plotted on the same trials (in-sample, so separability is optimistic).*
+*Figure 23. Subject 1 trials in the space of the first two CSP components, fitted and plotted on the same trials (in-sample, so separability is optimistic).*
 
 ![Subject 1 EEGNet saliency topomaps](assets/eda_subject_1/subject_1_eegnet_saliency_topomap.png)
 
-*Figure 23. Subject 1 input-gradient saliency of an EEGNet trained on all trials of the subject for 15 epochs. This is a first-order attribution summary of a single model, not a mechanistic explanation.*
+*Figure 24. Subject 1 input-gradient saliency of an EEGNet trained on all trials of the subject for 15 epochs. This is a first-order attribution summary of one model, not a mechanistic explanation.*
 
 ## 5. Discussion
 
-Mean accuracy suggests that the ranking depends on the protocol:
+**Confirmatory results.** Of the three pre-specified comparisons, only the LOSO comparison is significant: EEGNet decodes held-out subjects more accurately than the Riemannian model, by about ten percentage points and in every subject. When the model has to transfer to a new session of the same subject, there is no evidence that EEGNet outperforms FBCSP, and the Riemannian model and FBCSP perform alike. The cross-session confidence intervals are wide (about ±7 points for Riemann vs FBCSP), so these non-significant results do not show equivalence.
 
-- FBCSP, Riemann, and CSP lead within subjects.
-- EEGNet leads in LOSO and transfer.
-- Riemann is the strongest non-deep model across subjects.
+**Protocol dependence.** The exploratory protocol-by-model test supports the idea that EEGNet's relative standing differs between LOSO and cross-session, in eight of nine subjects. The two protocols also differ by a factor of sixteen in training-set size. A design that holds the amount of training data constant would be needed to attribute the difference to subject-independent generalization. Examples are training cross-subject models on a matched number of trials, or pooling sessions from several subjects in a cross-session setting.
 
-The evidence for these rankings is limited. With nine subjects and the multiple-comparison families defined above, no comparison among CSP, FBCSP, Riemann, and EEGNet is significant in any protocol. The most consistent signals are directional: EEGNet is higher than every other model in eight of nine LOSO subjects, and the transfer ordering EEGNet > Riemann > FBCSP holds at all five calibration budgets. A study designed to test these claims would need more subjects or datasets, or a smaller set of pre-specified primary comparisons.
+**Session effects.** Every model loses accuracy from session-pooled CV to cross-session evaluation (`2` to `6` points). Session-pooled CV therefore overstates how well a decoder trained on one day works on another day, although part of the loss reflects smaller training sets.
 
-The EEGNet results depend on how the network is trained. The `50`-epoch budget stopped within-subject training before convergence, a longer budget raised the within-subject mean by about five points, and single-subject results changed noticeably between runs. The within-subject gap between EEGNet and the best classical pipelines is therefore partly a property of the training recipe. A larger training set in LOSO also gives EEGNet more optimization steps per epoch than within-subject training (about `29` versus `3` mini-batches per epoch at batch size `64`), which confounds the comparison of deep and classical models across protocols.
+**EEGNet training.** EEGNet results depend on the training budget and the seed:
 
-In transfer, EEGNet fine-tunes all layers, including batch-normalization statistics, on the target trials, while FBCSP and Riemann only add the target trials to a much larger source training set. The transfer comparison therefore reflects both the model family and the adaptation strategy.
+- Recipe R raised accuracy relative to the earlier 50-epoch runs.
+- With only `144` training trials, single training runs can fail (S3 cross-session, between-seed SD `0.199`).
+- Averaging over five seeds reduces the influence of such failures but does not remove the underlying instability.
 
-Limitations:
+**ERD/ERS.** The time-frequency analysis confirms task-related mu and beta desynchronization after the cue in all conditions. Its lateralization is clear only for right-hand imagery in the beta band, which is in line with the moderate decoding accuracy of several subjects.
 
-- Within-subject CV pools the two recording sessions. Cross-session evaluation (train on session 1, test on session 2) is the standard for this dataset and is likely to give lower accuracy.
-- Nine subjects, two transfer seeds, and a single training seed for within-subject and LOSO EEGNet limit precision.
+**Limitations.**
+
+- Nine subjects from one dataset limit statistical power.
+- P3 replicates a direction that had already been observed.
 - FBCSP and EEGNet are simplified relative to their original publications, and no hyperparameters were tuned.
-- Runs on Apple MPS are not guaranteed to be bit-for-bit reproducible.
-
-Further work:
-
-- add a cross-session protocol
-- repeat EEGNet within-subject and LOSO runs over several training seeds
-- pre-specify primary comparisons
-- evaluate subject-alignment methods (for example Riemannian re-centering) that adapt the non-deep models more directly to a new subject
+- EEGNet ran on Apple MPS, which is not guaranteed to be bit-for-bit reproducible, and results from other devices may differ.
 
 ## 6. Conclusion
 
-Under one preprocessing path and three explicitly separated protocols:
-
-- **Within-subject**: FBCSP has the highest mean accuracy (`0.818`), but it does not differ significantly from Riemann (`0.798`) or CSP (`0.781`).
-- **LOSO**: EEGNet has the highest mean accuracy (`0.707`) and is the best model for eight of nine held-out subjects, without significance after correction.
-- **Transfer**: the ordering EEGNet > Riemann > FBCSP is consistent across calibration budgets, again without significance after correction.
-- **Raw log-variance power**: it is a meaningful baseline (`0.710` within-subject, `0.613` LOSO) once the features are computed at the correct signal scale.
-
-These results are a consistent descriptive picture rather than statistically established rankings, and the EEGNet results depend on the training budget.
+- In cross-session evaluation, EEGNet (`0.705`) was not significantly different from FBCSP (`0.760`), and the Riemannian model (`0.759`) matched FBCSP. The confidence intervals do not rule out differences of several percentage points in either direction.
+- In LOSO evaluation, EEGNet (`0.724`) was more accurate than the Riemannian model (`0.629`) for all nine subjects. This was the only significant pre-specified comparison, and it replicates an earlier observation.
+- Exploratory analyses suggest that EEGNet's advantage is specific to protocols with large pooled training sets, that all models lose accuracy across recording days, and that EEGNet's ranking in transfer (EEGNet > Riemann > FBCSP) is consistent but not significant after correction.
 
 ## Appendix A. EEGNet optimization curves
 
+![Cross-session EEGNet learning curve](assets/generated/cross_session_eegnet_learning_curve.png)
+
+*Figure A1. Mean cross-session EEGNet training and validation loss over subjects and training seeds. Each epoch averages only the fits still training, so later epochs are computed from fewer fits.*
+
 ![Within-subject EEGNet learning curve](assets/generated/within_subject_eegnet_learning_curve.png)
 
-*Figure A1. Mean within-subject EEGNet training and validation loss (`50` max epochs). Each epoch averages only the folds still training, so the tail of the curve is computed from fewer folds.*
+*Figure A2. Mean within-subject (pooled CV) EEGNet training and validation loss over folds and training seeds, averaged in the same way.*
 
 ![LOSO EEGNet learning curve](assets/generated/loso_eegnet_learning_curve.png)
 
-*Figure A2. Mean LOSO EEGNet training and validation loss (`50` max epochs), averaged in the same way.*
+*Figure A3. Mean LOSO EEGNet training and validation loss over held-out subjects and training seeds, averaged in the same way.*
 
-## Appendix B. Corrections to the previous version of this report
+## Appendix B. Corrections to earlier versions of this report
 
-1. **Raw Power + LDA.** The log-variance features used a fixed floor of `1e-10`. Because the signals are in volts, typical channel variances (about `2.5e-11 V²`) fell below the floor and every feature became the same constant, so the classifier predicted a single class. The reported `0.5355` (within-subject) and `0.5270` (LOSO) were artifacts; the corrected values are `0.7099` and `0.6134`.
-2. **ERD/ERS figures.** The previous figures normalized each trial by its own `0.5 s` reference interval at the edge of the epoch before averaging. This produced a sustained apparent power increase of `+50%` to `+100%` even for data without any task effect. The figures now use the trial-averaged definition and a reference interval away from the epoch edges.
-3. **LOSO EEGNet spread.** The previously reported standard deviation (`0.1358`) did not match the per-subject values of the same run (`0.0927`, population SD).
-4. **Transfer "± Std" and "95% CI".** These were computed across the five calibration settings rather than across subjects or seeds. All intervals are now computed across target subjects.
-5. **Transfer p-values.** The previous tests treated seed-target pairs as independent, counting each target twice, and were not corrected for multiple comparisons. Tests are now exact, use target subjects as units, and are Holm-adjusted.
-6. **Repeated-seed EEGNet transfer.** The previous seeds changed only the calibration split; the network training seed was fixed. Each seed now also sets the EEGNet training seed.
-7. **Figures.** The transfer figure now includes FBCSP, and transfer confusion matrices are shown per calibration setting instead of pooled over settings.
-8. **Classical, Riemann, and EEGNet reruns.** CSP and FBCSP reproduced their previous values exactly. Riemann changed slightly (within-subject `0.7956` to `0.7983`, LOSO `0.6258` to `0.6285`). EEGNet changed by about `0.01` in mean accuracy and more for individual subjects. The software and hardware of the previous runs are unknown.
-9. **Removed content.** The earlier subject-1 sanity-check table and runtime table were removed: the first contained the invalid Raw Power value, and the second came from an undocumented environment.
+1. **Raw Power + LDA.** A fixed floor of `1e-10` on volt-scale variances (about `2.5e-11 V²`) made every feature constant. The earlier values `0.5355` (within-subject) and `0.5270` (LOSO) were artifacts.
+2. **ERD/ERS figures.** The earliest version normalized each trial by its own `0.5 s` reference interval at the epoch edge. This produced an apparent sustained power increase of `+50%` to `+100%` even for data without a task effect.
+3. **LOSO EEGNet spread, transfer intervals, and p-values.**
+   - The reported LOSO standard deviation did not match the per-subject values of the same run.
+   - The transfer "± Std" and "95% CI" were computed across calibration settings rather than subjects.
+   - The transfer p-values counted each target twice and were not corrected for multiple comparisons.
+4. **Repeated-seed EEGNet transfer.** Seeds now also set the network training seed.
+5. **Approximate ERD/ERS values.** The previous revision quoted ERD/ERS values read from figures. They are replaced by the exported values. The largest change: left-hand imagery at C3 peaks at `−25.1%` (`1.57 s`), not about `−20%` as previously read. The previous revision also described contralateral dominance more strongly than the per-subject tests support.
+6. **EEGNet configuration.** The previous revision reported single-seed, 50-epoch EEGNet results. All EEGNet results now use recipe R; the earlier runs are listed in Section 4.7 for comparison.
+7. **Unchanged results.** Classical and Riemannian results are unchanged since the previous revision.
 
 ## Appendix C. Reproducibility
 
-- environment for the reported results: Python `3.14.7`, MOABB `1.7.2`, MNE `1.13.2`, PyTorch `2.14.0` (Apple MPS), scikit-learn `1.9.1`, pyRiemann `0.12`, NumPy `2.5.3`, SciPy `1.18.1`, macOS arm64
-- seeds: `42` for CV splits and EEGNet; transfer seeds `42` and `43`
-- tables and statistics are regenerated from the saved outputs with `--experiment export_assets` and `--experiment export_stats`, which also list the result files they used
+Software and hardware:
+
+- EEGNet results: Python `3.14.7`, PyTorch `2.14.0` on Apple MPS (macOS arm64), MOABB `1.7.2`, MNE `1.13.2`, scikit-learn `1.9.1`, pyRiemann `0.12`, NumPy `2.5.3`, SciPy `1.18.1`
+- Classical and Riemannian cross-session results record the same environment (they run on the CPU regardless of the torch device setting). The classical and Riemannian within-subject, LOSO, and transfer results were produced earlier with the same code for these pipelines, and their result files do not record the environment.
+
+Wall-clock fit-and-predict time on that machine (EEGNet totals include all training seeds):
+
+| Result | Runtime (s) |
+|---|---:|
+| Cross-session: Raw Power / CSP / FBCSP / Riemann | `0.1` / `1.5` / `40.0` / `1.2` |
+| Cross-session: EEGNet (5 seeds) | `394.0` |
+| Within-subject CV: Raw Power / CSP / FBCSP / Riemann | `0.5` / `11.4` / `251.0` / `7.1` |
+| Within-subject CV: EEGNet (5 seeds) | `2776.0` |
+| LOSO: Raw Power / CSP / FBCSP / Riemann | `0.9` / `23.6` / `492.6` / `13.3` |
+| LOSO: EEGNet (5 seeds) | `9787.0` |
+| Transfer, 9 targets × 2 seeds: FBCSP / Riemann / EEGNet | `5118.2` / `190.2` / `3626.2` |
+
+The full protocol is described in [`docs/reproduction.md`](reproduction.md) and is run with `python -m eeg_motor_imagery_classification.reproduce`. `python -m eeg_motor_imagery_classification.cli --experiment export_stats` regenerates every statistic in this report from the saved outputs.
+
+## Appendix D. Adherence to the analysis plan
+
+- The primary comparisons, the EEGNet recipe, the seeds, and the test procedure were used as specified in [`docs/analysis_plan.md`](analysis_plan.md).
+- The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory.
+- No other deviation was recorded.
 
 ## References
 

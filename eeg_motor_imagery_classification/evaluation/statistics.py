@@ -62,6 +62,19 @@ def paired_permutation_test(
     }
 
 
+def paired_difference_interval(x: np.ndarray, y: np.ndarray, confidence: float = 0.95) -> tuple[float, float]:
+    """t-distribution confidence interval of the mean paired difference x - y."""
+
+    from scipy import stats
+
+    diffs = np.asarray(x, dtype=float) - np.asarray(y, dtype=float)
+    n = len(diffs)
+    if n < 2:
+        return float("nan"), float("nan")
+    half = float(stats.t.ppf(0.5 + confidence / 2.0, df=n - 1) * diffs.std(ddof=1) / np.sqrt(n))
+    return float(diffs.mean() - half), float(diffs.mean() + half)
+
+
 def holm_correction(p_values: list[float] | np.ndarray) -> np.ndarray:
     """Holm-Bonferroni step-down adjusted p-values (same order as the input)."""
 
@@ -121,7 +134,9 @@ def compare_models_pairwise(
             continue
         x = np.asarray([per_unit_scores[model_a][label] for label in labels], dtype=float)
         y = np.asarray([per_unit_scores[model_b][label] for label in labels], dtype=float)
-        comparisons.append({"model_a": model_a, "model_b": model_b, "units": labels, **paired_permutation_test(x, y)})
+        ci_low, ci_high = paired_difference_interval(x, y)
+        comparisons.append({"model_a": model_a, "model_b": model_b, "units": labels, **paired_permutation_test(x, y),
+                            "diff_ci95_low": ci_low, "diff_ci95_high": ci_high})
 
     adjusted = holm_correction([item["p_value"] for item in comparisons])
     for item, p_holm in zip(comparisons, adjusted, strict=True):

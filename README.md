@@ -9,12 +9,11 @@
 This repository presents an EEG motor imagery classification project with unified preprocessing, explicit evaluation protocols, reproducible experiment entry points, and report-ready artifacts.
 It compares classical, geometric, and deep baselines for left-versus-right motor imagery under clearly separated within-subject, subject-independent, and transfer settings.
 
-Summary (9 subjects; mean accuracy, Holm-corrected exact paired tests):
+Pre-specified results (9 subjects; exact paired sign-flip tests, Holm-adjusted across the three primary comparisons; see [docs/analysis_plan.md](docs/analysis_plan.md)):
 
-- within-subject: `FBCSP` has the highest mean (`0.818`), but it does not differ significantly from `Riemann` (`0.798`) or `CSP` (`0.781`)
-- LOSO: `EEGNet` has the highest mean (`0.707`) and is the best model for 8 of 9 held-out subjects, but this is not significant after correction
-- transfer: `EEGNet > Riemann > FBCSP` at every calibration budget, again without significance after correction
-- EEGNet results depend on the training budget and vary between runs; see the report for details
+- cross-session (train on session 1, test on session 2): `EEGNet` vs `FBCSP` `-0.055` (95% CI `-0.130` to `+0.021`, `p_Holm = 0.20`); `Riemann` vs `FBCSP` `-0.002` (`-0.072` to `+0.069`, `p_Holm = 0.98`); no significant difference
+- LOSO: `EEGNet` vs `Riemann` `+0.095` (`+0.055` to `+0.136`), higher in all 9 subjects, `p_Holm = 0.012` (a replication of an earlier observation)
+- exploratory: EEGNet's advantage is larger in LOSO than cross-session, but the two protocols also differ in training-set size (2304 vs 144 trials)
 
 ## Report
 
@@ -212,57 +211,44 @@ This writes `outputs/statistics/statistics.md` and `statistics.json`.
 
 - CV splits, transfer calibration splits, and EEGNet training default to `seed=42`; `--seed-list` repeats transfer sweeps, and each seed also sets the EEGNet training seed
 - EEGNet requests deterministic torch kernels (`--non-deterministic` opts out), but runs on GPU or Apple MPS are not guaranteed to be bit-for-bit reproducible
-- EEGNet uses validation-based early stopping (CLI default: `50` max epochs) and restores the best validation epoch; the analysis plan fixes `300` max epochs with patience `30` and five training seeds
+- EEGNet uses validation-based early stopping and restores the best validation epoch; the CLI default is `50` max epochs, and the reported results use the analysis-plan recipe (`300` max epochs, patience `30`, five training seeds)
 - every `result.json` records the experiment settings (`config`) and the software/hardware environment (`environment`)
-- reported results were produced with Python `3.14.7`, MOABB `1.7.2`, MNE `1.13.2`, PyTorch `2.14.0` (Apple MPS), scikit-learn `1.9.1`, pyRiemann `0.12`; the full environment is listed in `requirements-lock.txt`
+- reported EEGNet results were produced with Python `3.14.7`, MOABB `1.7.2`, MNE `1.13.2`, PyTorch `2.14.0` (Apple MPS), scikit-learn `1.9.1`, pyRiemann `0.12`; the full environment is listed in `requirements-lock.txt`
 
-The results currently in the report (EEGNet: one training seed, 50 max epochs) were produced with the commands below; output names are the ones the export steps look for. The next round follows the pre-specified recipe in [docs/analysis_plan.md](docs/analysis_plan.md) and is run with `python -m eeg_motor_imagery_classification.reproduce` ([docs/reproduction.md](docs/reproduction.md)).
+The reported results were produced with the cross-platform runner, which runs every experiment with the settings fixed in [docs/analysis_plan.md](docs/analysis_plan.md) and then regenerates the figures and statistics ([docs/reproduction.md](docs/reproduction.md)):
 
 ```bash
-python -m eeg_motor_imagery_classification.cli --experiment classical_baseline --seed 42 --output-dir outputs/within_subject_classical
-python -m eeg_motor_imagery_classification.cli --experiment riemann_baseline --seed 42 --output-dir outputs/within_subject_riemann
-python -m eeg_motor_imagery_classification.cli --experiment eegnet_baseline --epochs 50 --validation-split 0.2 --seed 42 --output-dir outputs/within_subject_eegnet
-
-python -m eeg_motor_imagery_classification.cli --experiment classical_loso --output-dir outputs/loso_classical
-python -m eeg_motor_imagery_classification.cli --experiment riemann_loso --output-dir outputs/loso_riemann
-python -m eeg_motor_imagery_classification.cli --experiment eegnet_loso --epochs 50 --validation-split 0.2 --seed 42 --output-dir outputs/loso_eegnet
-
-python -m eeg_motor_imagery_classification.cli --experiment classical_transfer --all-target-subjects --seed-list 42,43 --output-dir outputs/transfer_classical_all_targets_seed42_43
-python -m eeg_motor_imagery_classification.cli --experiment riemann_transfer --all-target-subjects --seed-list 42,43 --output-dir outputs/transfer_riemann_all_targets_seed42_43
-python -m eeg_motor_imagery_classification.cli --experiment eegnet_transfer --all-target-subjects --seed-list 42,43 --epochs 50 --validation-split 0.2 --output-dir outputs/transfer_eegnet_all_targets_seed42_43
-
-python -m eeg_motor_imagery_classification.cli --experiment export_assets --output-dir docs/assets/generated
-python -m eeg_motor_imagery_classification.cli --experiment export_stats
+python -m eeg_motor_imagery_classification.reproduce --stages all --device auto
+python -m eeg_motor_imagery_classification.reproduce --stages all --dry-run   # print every underlying CLI command
 ```
 
 ## Results
 
-All values are accuracy; mean ± sample SD across the 9 subjects (transfer: target subjects, seeds averaged within target). Full tables, per-subject values, and paired tests are in [docs/report.md](docs/report.md).
+All values are accuracy; mean ± sample SD across the 9 subjects (transfer: target subjects, seeds averaged within target). EEGNet uses the pre-specified recipe (up to 300 epochs with early stopping, mean of 5 training seeds). Full tables, per-subject values, confidence intervals, and paired tests are in [docs/report.md](docs/report.md).
 
-| Model | Within-subject CV | LOSO |
-|---|---:|---:|
-| Raw Power + LDA | `0.7099 ± 0.1331` | `0.6134 ± 0.0938` |
-| CSP + LDA | `0.7810 ± 0.1368` | `0.5907 ± 0.1148` |
-| FBCSP + LDA | `0.8183 ± 0.1383` | `0.5648 ± 0.0678` |
-| Riemann + Tangent Space + LDA | `0.7983 ± 0.1245` | `0.6285 ± 0.1039` |
-| EEGNet (`50` max epochs + early stopping) | `0.6933 ± 0.1862` | `0.7068 ± 0.1481` |
+| Model | Cross-session | Within-subject CV (sessions pooled) | LOSO |
+|---|---:|---:|---:|
+| Raw Power + LDA | `0.6898 ± 0.1381` | `0.7099 ± 0.1331` | `0.6134 ± 0.0938` |
+| CSP + LDA | `0.7230 ± 0.1641` | `0.7810 ± 0.1368` | `0.5907 ± 0.1148` |
+| FBCSP + LDA | `0.7600 ± 0.1600` | `0.8183 ± 0.1383` | `0.5648 ± 0.0678` |
+| Riemann + Tangent Space + LDA | `0.7585 ± 0.1505` | `0.7983 ± 0.1245` | `0.6285 ± 0.1039` |
+| EEGNet | `0.7054 ± 0.1810` | `0.7459 ± 0.1885` | `0.7239 ± 0.1234` |
 
 | Transfer setting | FBCSP | Riemann | EEGNet |
 |---|---:|---:|---:|
-| `zero_shot` | `0.5664 ± 0.0650` | `0.6331 ± 0.1056` | `0.7079 ± 0.1455` |
-| `5_shot` | `0.5687 ± 0.0698` | `0.6671 ± 0.1208` | `0.7195 ± 0.1567` |
-| `10_shot` | `0.5745 ± 0.0710` | `0.6740 ± 0.1232` | `0.7469 ± 0.1611` |
-| `20_shot` | `0.5826 ± 0.0700` | `0.6968 ± 0.1218` | `0.7569 ± 0.1560` |
-| `30_shot` | `0.5887 ± 0.0830` | `0.7106 ± 0.1327` | `0.7612 ± 0.1570` |
+| `zero_shot` | `0.5664 ± 0.0650` | `0.6331 ± 0.1056` | `0.7276 ± 0.1205` |
+| `5_shot` | `0.5687 ± 0.0698` | `0.6671 ± 0.1208` | `0.7515 ± 0.1261` |
+| `10_shot` | `0.5745 ± 0.0710` | `0.6740 ± 0.1232` | `0.7650 ± 0.1363` |
+| `20_shot` | `0.5826 ± 0.0700` | `0.6968 ± 0.1218` | `0.7936 ± 0.1191` |
+| `30_shot` | `0.5887 ± 0.0830` | `0.7106 ± 0.1327` | `0.7940 ± 0.1268` |
 
 `k_shot` means `k` calibration trials per class. FBCSP and Riemann adapt by retraining on source plus calibration trials; EEGNet is fine-tuned on the calibration trials.
 
-Statistical notes:
+Notes:
 
-- Within-subject: only Raw Power vs CSP and Raw Power vs Riemann are significant after Holm correction (`p_Holm = 0.039`); CSP, FBCSP, Riemann, and EEGNet do not differ significantly.
-- LOSO: EEGNet is higher than every other model in 8 of 9 subjects (uncorrected `p = 0.012-0.020`, `p_Holm = 0.12-0.18`).
-- Transfer: every ordering is consistent across settings, but with 9 targets and 15 tests the smallest attainable Holm-adjusted p-value is `0.0586`.
-- With a `300`-epoch budget, EEGNet reaches `0.7423` within-subject and `0.7218` in LOSO.
+- Cross-session is the standard protocol for this dataset; pooled within-subject CV mixes both sessions and is reported as a reference (every model is 2-6 points lower cross-session).
+- Secondary comparisons are exploratory. In LOSO, EEGNet is higher than CSP and Riemann in all 9 subjects (`p_Holm = 0.039`). In transfer, EEGNet is higher than Riemann in all 9 targets at every setting, but with 15 tests the smallest attainable Holm-adjusted p-value is `0.0586`.
+- EEGNet trained on a single subject's session (144 trials) can be unstable across seeds (between-seed SD up to `0.199`).
 
 ## Selected References
 

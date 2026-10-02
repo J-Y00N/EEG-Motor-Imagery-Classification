@@ -1,0 +1,9 @@
+unit,class,channel,band,side,window_mean_pct,peak_erd_pct,peak_latency_s
+S1,left_hand,C3,mu,ipsilateral,-12.9695,-24.923,2.404
+S1,left_hand,C3,beta,ipsilateral,4.13684,-3.2469,0.708
+S1,left_hand,C4,mu,contralateral,-19.2026,-29.9263,0.708
+S1,left_hand,C4,beta,contralateral,-4.69023,-15.6065,3.86
+S1,right_hand,C3,mu,contralateral,-24.6606,-38.9411,0.74
+S1,right_hand,C3,beta,contralateral,-6.22248,-15.7847,1.188
+S1,right_hand,C4,mu,ipsilateral,-16.7745,-31.5199,0.74
+S1,right_hand,C4,beta,ipsilateral,-5.36339,-17.5871,1.588
