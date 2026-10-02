@@ -2,7 +2,7 @@
 
 ## Abstract
 
-This report compares five decoders of left- versus right-hand motor imagery on BNCI 2014-001 (nine subjects): raw log-variance power, CSP, FBCSP, a Riemannian tangent-space model, and EEGNet. Three comparisons were fixed in an analysis plan before the corresponding results were computed. In cross-session evaluation (train on one recording day, test on the other), EEGNet did not differ significantly from FBCSP: the mean difference was −5.5 percentage points (95% CI −13.0 to +2.1; Holm-adjusted p = 0.20). The Riemannian model and FBCSP were practically identical (−0.2 points, 95% CI −7.2 to +6.9; p = 0.98). In leave-one-subject-out (LOSO) evaluation, EEGNet was more accurate than the Riemannian model in all nine subjects (+9.5 points, 95% CI +5.5 to +13.6; Holm-adjusted p = 0.012); this comparison replicates a direction seen in earlier runs. An exploratory analysis suggests that EEGNet's advantage depends on the protocol, but the two protocols also differ strongly in the amount of training data.
+This report compares five decoders of left- versus right-hand motor imagery on BNCI 2014-001 (nine subjects): raw log-variance power, CSP, FBCSP, a Riemannian tangent-space model, and EEGNet. Three comparisons were fixed in an analysis plan before the corresponding results were computed. In cross-session evaluation (train on one recording day, test on the other), EEGNet did not differ significantly from FBCSP: the mean difference was −5.5 percentage points (95% CI −13.0 to +2.1; Holm-adjusted p = 0.20). The Riemannian model and FBCSP were practically identical (−0.2 points, 95% CI −7.2 to +6.9; p = 0.98). In leave-one-subject-out (LOSO) evaluation, EEGNet was more accurate than the Riemannian model in all nine subjects (+9.5 points, 95% CI +5.5 to +13.6; Holm-adjusted p = 0.012); this comparison replicates a direction seen in earlier runs. A follow-up fixed before it was run trained the cross-subject models on only 144 trials, as many as one session, and tested them on the same trials as the cross-session models. With this training set, EEGNet was close to chance (0.534) and below the Riemannian model in all nine subjects. Its standing relative to Riemann and FBCSP no longer differed between the two protocols (Holm-adjusted p = 0.94 for both). EEGNet's advantage in LOSO therefore depends on the large pooled training set rather than on cross-subject evaluation as such.
 
 Keywords: EEG motor imagery classification, BNCI2014_001, CSP, FBCSP, Riemannian geometry, EEGNet, cross-session, LOSO, transfer learning
 
@@ -57,6 +57,7 @@ The classical and Riemannian models were not tuned. EEGNet runs used Apple MPS; 
 - **Cross-session**: train on the first session of a subject (`144` trials) and test on the second session (`144` trials). This is the standard protocol for this dataset.
 - **Within-subject CV (sessions pooled)**: stratified, shuffled 5-fold cross-validation over all `288` trials of a subject. Trials from both sessions appear in training and test folds, so the result is a session-pooled reference, not a test of transfer to a new session.
 - **LOSO**: train on eight subjects (`2304` trials) and test on all `288` trials of the held-out subject.
+- **Matched LOSO** (addendum): train on `144` trials from the other eight subjects (9 per class per subject, drawn with seeds `42-46`) and test on session 2 of the held-out subject. The training-set size and the test trials are the same as in cross-session evaluation; only the source of the training data differs. EEGNet uses recipe R with batch size `32`.
 - **Cross-subject transfer**:
   - For each target subject, the target trials are split 50/50 into a calibration pool and an evaluation set of `144` trials.
   - A `k_shot` setting draws `k` calibration trials per class (`k = 5, 10, 20, 30`); `zero_shot` uses source subjects only.
@@ -92,6 +93,7 @@ Secondary analyses are Holm-adjusted within their own families and are explorato
 - `15` transfer tests
 - `4` lateralization tests
 - `2` protocol-by-model tests
+- the `2` addendum tests A1-A2 ([`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md)), fixed before the matched runs, with their own Holm family and a pre-stated interpretation rule
 
 ## 4. Results
 
@@ -245,9 +247,47 @@ EEGNet's advantage over both non-deep models is larger in LOSO than in cross-ses
 - EEGNet trains on `2304` pooled trials in LOSO and on `144` single-subject trials cross-session.
 - The test sets contain both sessions in LOSO and only the second session cross-session.
 
-The result is therefore consistent with EEGNet benefiting from larger training sets as much as with a specific cross-subject advantage, and this comparison alone cannot separate the two. A follow-up that matches both the training-set size and the test trials of the two protocols was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run.
+The result is therefore consistent with EEGNet benefiting from larger training sets as much as with a specific cross-subject advantage, and this comparison alone cannot separate the two. A follow-up that matches both the training-set size and the test trials of the two protocols was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run (Section 4.7).
 
-### 4.7 EEGNet training budget and variability
+### 4.7 Addendum: training-size-matched LOSO
+
+Matched LOSO uses the same `144` test trials per subject as cross-session evaluation and a training set of the same size, so the two protocols differ only in whether the training data come from the test subject's first session or from eight other subjects.
+
+| Model | Matched LOSO, mean ± SD | 95% CI | Cross-session (same test trials) | Change |
+|---|---:|---:|---:|---:|
+| Raw Power + LDA | `0.5804 ± 0.0675` | `[0.5285, 0.6323]` | `0.6898` | `−0.1094` |
+| CSP + LDA | `0.5806 ± 0.0625` | `[0.5325, 0.6286]` | `0.7230` | `−0.1424` |
+| FBCSP + LDA | `0.5602 ± 0.0594` | `[0.5145, 0.6059]` | `0.7600` | `−0.1998` |
+| Riemann + Tangent Space + LDA | `0.6017 ± 0.0697` | `[0.5481, 0.6553]` | `0.7585` | `−0.1568` |
+| EEGNet (recipe R) | `0.5340 ± 0.0318` | `[0.5095, 0.5584]` | `0.7054` | `−0.1714` |
+
+Pre-specified addendum tests (per-subject model difference under matched LOSO minus the same difference under cross-session; Holm across two tests):
+
+| ID | Model difference | Matched LOSO − cross-session | 95% CI | Subjects larger in matched LOSO | p (exact) | p (Holm) |
+|---|---|---:|---:|---:|---:|---:|
+| A1 | EEGNet − Riemann | `−0.0147` | `[−0.1053, +0.0760]` | `4 / 9` | `0.7109` | `0.9375` |
+| A2 | EEGNet − FBCSP | `+0.0284` | `[−0.0537, +0.1105]` | `6 / 9` | `0.4688` | `0.9375` |
+
+- **Pre-specified rule.** Neither test is significant. Under the rule fixed in the addendum, EEGNet's larger advantage in full LOSO is therefore not shown to be independent of the training-set size.
+  - The confidence intervals are wide (about ±9 points), so moderate effects of the data source cannot be excluded.
+- **Descriptive pattern.** With `144` cross-subject training trials, EEGNet is close to chance for every subject (`0.488` to `0.596`) and is the least accurate model. In the secondary family, Riemann is higher than EEGNet in all nine subjects (`+0.068`, `p_Holm = 0.039`).
+- **Full versus matched LOSO.** The test sets differ (both sessions versus session 2), so the following is descriptive only. Going from `144` to `2304` cross-subject training trials changes the mean accuracy by:
+
+  | Model | Matched LOSO (144 trials) | Full LOSO (2304 trials) | Change |
+  |---|---:|---:|---:|
+  | EEGNet | `0.534` | `0.724` | `+0.190` |
+  | Riemann | `0.602` | `0.629` | `+0.027` |
+  | FBCSP | `0.560` | `0.565` | `+0.005` |
+
+  EEGNet's LOSO advantage appears only with the large pooled training set.
+- **Value of own-subject data.** Every model is `11` to `20` points more accurate when its `144` training trials come from the test subject's own first session rather than from other subjects (descriptive, same test trials).
+- **Seed variability.** The between-seed standard deviation of matched-LOSO EEGNet is `0.023` to `0.083` per subject. This is larger than in full LOSO, as expected when each seed also draws a different training subsample.
+
+![Matched LOSO accuracy](assets/generated/loso_matched_accuracy.png)
+
+*Figure 9a. LOSO with `144` training trials from the other subjects, tested on session 2 of each held-out subject. Error bars show the standard deviation across subjects.*
+
+### 4.8 EEGNet training budget and variability
 
 | Protocol | Earlier run: 1 seed, 50 max epochs | Recipe R: 5 seeds, 300 max epochs |
 |---|---:|---:|
@@ -261,7 +301,7 @@ The result is therefore consistent with EEGNet benefiting from larger training s
 - The between-seed standard deviation per subject ranges from `0.004` to `0.073` (pooled CV), `0.014` to `0.046` (LOSO), and `0.016` to `0.199` (cross-session).
 - Single-seed EEGNet results for individual subjects should not be interpreted.
 
-### 4.8 Exploratory EEG analysis
+### 4.9 Exploratory EEG analysis
 
 The exploratory figures use epochs from `-1.5` to `4.5 s` around the cue, so that the reference interval and the analysed task interval stay away from wavelet edge effects. Time-frequency power uses Morlet wavelets (`8-30 Hz`, `n_cycles = f / 2`). ERD/ERS follows the classical definition (Pfurtscheller and Lopes da Silva, 1999): power is averaged over trials first and then expressed relative to the pre-cue reference interval `[-1.0, -0.2] s`:
 
@@ -370,7 +410,17 @@ Contralateral versus ipsilateral window mean, per subject (exact sign-flip test,
 
 **Confirmatory results.** Of the three pre-specified comparisons, only the LOSO comparison is significant: EEGNet decodes held-out subjects more accurately than the Riemannian model, by about ten percentage points and in every subject. When the model has to transfer to a new session of the same subject, there is no evidence that EEGNet outperforms FBCSP, and the Riemannian model and FBCSP perform alike. The cross-session confidence intervals are wide (about ±7 points for Riemann vs FBCSP), so these non-significant results do not show equivalence.
 
-**Protocol dependence.** The exploratory protocol-by-model test supports the idea that EEGNet's relative standing differs between LOSO and cross-session, in eight of nine subjects. The two protocols also differ by a factor of sixteen in training-set size. A design that holds the amount of training data constant would be needed to attribute the difference to subject-independent generalization. Examples are training cross-subject models on a matched number of trials, or pooling sessions from several subjects in a cross-session setting.
+**Protocol dependence.** EEGNet's relative standing differs between full LOSO and cross-session evaluation, in eight of nine subjects (exploratory). The addendum shows that this difference is tied to the amount of training data:
+
+- When cross-subject models receive only as many trials as one session, EEGNet falls to near chance.
+- Its standing relative to Riemann and FBCSP then no longer differs from cross-session evaluation (A1, A2).
+
+The data therefore do not support a specific cross-subject advantage of EEGNet. Two things do hold:
+
+- EEGNet profits much more than the non-deep models from a large pooled training set (descriptively `+0.19` versus at most `+0.03` from `144` to `2304` trials).
+- For every model, a session of the subject's own data is worth more than the same number of trials from other subjects.
+
+The confidence intervals of A1 and A2 leave room for moderate data-source effects, and nine subjects limit what can be ruled out.
 
 **Session effects.** Every model loses accuracy from session-pooled CV to cross-session evaluation (`2` to `6` points). Session-pooled CV therefore overstates how well a decoder trained on one day works on another day, although part of the loss reflects smaller training sets.
 
@@ -386,6 +436,7 @@ Contralateral versus ipsilateral window mean, per subject (exact sign-flip test,
 
 - Nine subjects from one dataset limit statistical power.
 - P3 replicates a direction that had already been observed.
+- The addendum was specified after the primary results were known, although before the matched runs. Its training subsamples (five seeds) add sampling variability, and EEGNet's recipe was not re-tuned for small cross-subject training sets.
 - FBCSP and EEGNet are simplified relative to their original publications, and no hyperparameters were tuned.
 - EEGNet ran on Apple MPS, which is not guaranteed to be bit-for-bit reproducible, and results from other devices may differ.
 
@@ -393,7 +444,8 @@ Contralateral versus ipsilateral window mean, per subject (exact sign-flip test,
 
 - In cross-session evaluation, EEGNet (`0.705`) was not significantly different from FBCSP (`0.760`), and the Riemannian model (`0.759`) matched FBCSP. The confidence intervals do not rule out differences of several percentage points in either direction.
 - In LOSO evaluation, EEGNet (`0.724`) was more accurate than the Riemannian model (`0.629`) for all nine subjects. This was the only significant pre-specified comparison, and it replicates an earlier observation.
-- Exploratory analyses suggest that EEGNet's advantage is specific to protocols with large pooled training sets, that all models lose accuracy across recording days, and that EEGNet's ranking in transfer (EEGNet > Riemann > FBCSP) is consistent but not significant after correction.
+- With the training-set size and the test trials matched to cross-session evaluation, EEGNet's standing relative to the Riemannian model and FBCSP was the same as in cross-session evaluation (addendum, not significant). With only `144` cross-subject trials, EEGNet was near chance. EEGNet's LOSO advantage therefore reflects its use of a large pooled training set, not cross-subject evaluation as such.
+- Exploratory analyses further show that all models lose accuracy across recording days, and that the transfer ordering (EEGNet > Riemann > FBCSP) is consistent but not significant after correction.
 
 ## Appendix A. EEGNet optimization curves
 
@@ -419,7 +471,7 @@ Contralateral versus ipsilateral window mean, per subject (exact sign-flip test,
    - The transfer p-values counted each target twice and were not corrected for multiple comparisons.
 4. **Repeated-seed EEGNet transfer.** Seeds now also set the network training seed.
 5. **Approximate ERD/ERS values.** The previous revision quoted ERD/ERS values read from figures. They are replaced by the exported values. The largest change: left-hand imagery at C3 peaks at `−25.1%` (`1.57 s`), not about `−20%` as previously read. The previous revision also described contralateral dominance more strongly than the per-subject tests support.
-6. **EEGNet configuration.** The previous revision reported single-seed, 50-epoch EEGNet results. All EEGNet results now use recipe R; the earlier runs are listed in Section 4.7 for comparison.
+6. **EEGNet configuration.** The previous revision reported single-seed, 50-epoch EEGNet results. All EEGNet results now use recipe R; the earlier runs are listed in Section 4.8 for comparison.
 7. **Unchanged results.** Classical and Riemannian results are unchanged since the previous revision.
 
 ## Appendix C. Reproducibility
@@ -427,7 +479,7 @@ Contralateral versus ipsilateral window mean, per subject (exact sign-flip test,
 Software and hardware:
 
 - EEGNet results: Python `3.14.7`, PyTorch `2.14.0` on Apple MPS (macOS arm64), MOABB `1.7.2`, MNE `1.13.2`, scikit-learn `1.9.1`, pyRiemann `0.12`, NumPy `2.5.3`, SciPy `1.18.1`
-- Classical and Riemannian cross-session results record the same environment (they run on the CPU regardless of the torch device setting). The classical and Riemannian within-subject, LOSO, and transfer results were produced earlier with the same code for these pipelines, and their result files do not record the environment.
+- Classical and Riemannian cross-session and matched-LOSO results record the same environment (they run on the CPU regardless of the torch device setting). The classical and Riemannian within-subject, LOSO, and transfer results were produced earlier with the same code for these pipelines, and their result files do not record the environment.
 
 Wall-clock fit-and-predict time on that machine (EEGNet totals include all training seeds):
 
@@ -439,6 +491,8 @@ Wall-clock fit-and-predict time on that machine (EEGNet totals include all train
 | Within-subject CV: EEGNet (5 seeds) | `2776.0` |
 | LOSO: Raw Power / CSP / FBCSP / Riemann | `0.9` / `23.6` / `492.6` / `13.3` |
 | LOSO: EEGNet (5 seeds) | `9787.0` |
+| Matched LOSO, 5 seeds: Raw Power / CSP / FBCSP / Riemann | `0.6` / `7.4` / `203.0` / `6.1` |
+| Matched LOSO: EEGNet (5 seeds) | `235.6` |
 | Transfer, 9 targets × 2 seeds: FBCSP / Riemann / EEGNet | `5118.2` / `190.2` / `3626.2` |
 
 The full protocol is described in [`docs/reproduction.md`](reproduction.md) and is run with `python -m eeg_motor_imagery_classification.reproduce`. `python -m eeg_motor_imagery_classification.cli --experiment export_stats` regenerates every statistic in this report from the saved outputs.
@@ -450,7 +504,7 @@ The full protocol is described in [`docs/reproduction.md`](reproduction.md) and 
   - From now on, every `result.json` records `created_at`.
 - **Settings.** The settings recorded in the primary result files match the plan: `300` max epochs, patience `30`, minimum `30` epochs, batch size `32` for cross-session and `64` for LOSO, seeds `42-46`, Apple MPS.
 - **Collapsed fits.** The four collapsed cross-session EEGNet fits (Section 4.2) were kept, as the plan requires; a post-hoc sensitivity check is reported separately.
-- **Additions after the primary results.** The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory. A training-size-matched follow-up was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run.
+- **Additions after the primary results.** The paired-difference confidence intervals and the protocol-by-model tests (Section 4.6) were added after the primary results were known and are reported as supplementary or exploratory. A training-size-matched follow-up was specified in [`docs/analysis_plan_addendum.md`](analysis_plan_addendum.md) before it was run and was executed as specified. The commit that adds the addendum and the `created_at` field of the matched-LOSO result files record this order.
 - **Other deviations.** None was recorded.
 
 ## References

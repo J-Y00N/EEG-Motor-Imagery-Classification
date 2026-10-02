@@ -13,7 +13,8 @@ Pre-specified results (9 subjects; exact paired sign-flip tests, Holm-adjusted a
 
 - cross-session (train on session 1, test on session 2): `EEGNet` vs `FBCSP` `-0.055` (95% CI `-0.130` to `+0.021`, `p_Holm = 0.20`); `Riemann` vs `FBCSP` `-0.002` (`-0.072` to `+0.069`, `p_Holm = 0.98`); no significant difference
 - LOSO: `EEGNet` vs `Riemann` `+0.095` (`+0.055` to `+0.136`), higher in all 9 subjects, `p_Holm = 0.012` (a replication of an earlier observation)
-- exploratory: EEGNet's advantage is larger in LOSO than cross-session, but the two protocols also differ in training-set size (2304 vs 144 trials)
+- exploratory: EEGNet's advantage is larger in full LOSO than cross-session, but the two protocols also differ in training-set size (2304 vs 144 trials)
+- addendum (fixed before it was run; [docs/analysis_plan_addendum.md](docs/analysis_plan_addendum.md)): with 144 cross-subject training trials and the same test trials as cross-session, EEGNet is near chance (`0.534`) and its standing relative to Riemann/FBCSP no longer differs from cross-session (`p_Holm = 0.94`); its LOSO advantage depends on the large pooled training set
 
 ## Report
 
@@ -227,13 +228,13 @@ python -m eeg_motor_imagery_classification.reproduce --stages all --dry-run   # 
 
 All values are accuracy; mean ± sample SD across the 9 subjects (transfer: target subjects, seeds averaged within target). EEGNet uses the pre-specified recipe (up to 300 epochs with early stopping, mean of 5 training seeds). Full tables, per-subject values, confidence intervals, and paired tests are in [docs/report.md](docs/report.md).
 
-| Model | Cross-session | Within-subject CV (sessions pooled) | LOSO |
-|---|---:|---:|---:|
-| Raw Power + LDA | `0.6898 ± 0.1381` | `0.7099 ± 0.1331` | `0.6134 ± 0.0938` |
-| CSP + LDA | `0.7230 ± 0.1641` | `0.7810 ± 0.1368` | `0.5907 ± 0.1148` |
-| FBCSP + LDA | `0.7600 ± 0.1600` | `0.8183 ± 0.1383` | `0.5648 ± 0.0678` |
-| Riemann + Tangent Space + LDA | `0.7585 ± 0.1505` | `0.7983 ± 0.1245` | `0.6285 ± 0.1039` |
-| EEGNet | `0.7054 ± 0.1810` | `0.7459 ± 0.1885` | `0.7239 ± 0.1234` |
+| Model | Cross-session | Within-subject CV (sessions pooled) | LOSO | LOSO, 144 training trials |
+|---|---:|---:|---:|---:|
+| Raw Power + LDA | `0.6898 ± 0.1381` | `0.7099 ± 0.1331` | `0.6134 ± 0.0938` | `0.5804 ± 0.0675` |
+| CSP + LDA | `0.7230 ± 0.1641` | `0.7810 ± 0.1368` | `0.5907 ± 0.1148` | `0.5806 ± 0.0625` |
+| FBCSP + LDA | `0.7600 ± 0.1600` | `0.8183 ± 0.1383` | `0.5648 ± 0.0678` | `0.5602 ± 0.0594` |
+| Riemann + Tangent Space + LDA | `0.7585 ± 0.1505` | `0.7983 ± 0.1245` | `0.6285 ± 0.1039` | `0.6017 ± 0.0697` |
+| EEGNet | `0.7054 ± 0.1810` | `0.7459 ± 0.1885` | `0.7239 ± 0.1234` | `0.5340 ± 0.0318` |
 
 | Transfer setting | FBCSP | Riemann | EEGNet |
 |---|---:|---:|---:|
