@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -31,7 +30,8 @@ from eeg_motor_imagery_classification.models import (
     build_riemann_tangent_pipeline,
 )
 from eeg_motor_imagery_classification.train import TrainingConfig, train_model
-from eeg_motor_imagery_classification.utils import ensure_directory, write_json
+from eeg_motor_imagery_classification.evaluation.statistics import holm_correction, paired_permutation_test
+from eeg_motor_imagery_classification.utils import ensure_directory, read_json, write_csv, write_json, write_text
 
 # EDA epochs are cut wider than the classification window (0-4 s after the cue) so that the
 # ERD/ERS reference interval and the displayed task interval stay clear of the Morlet
@@ -149,7 +149,7 @@ def _plot_tsne(bundle, output_path: Path) -> None:
     plt.close(fig)
 
 
-def _plot_topomap(bundle, output_path: Path) -> None:
+def _plot_topomap(bundle, output_path: Path, values_csv: Path | None = None) -> None:
     import matplotlib.pyplot as plt
 
     eeg_picks = mne.pick_types(bundle.epochs.info, eeg=True, exclude="bads")
@@ -159,6 +159,10 @@ def _plot_topomap(bundle, output_path: Path) -> None:
     left_power = np.log(np.maximum(X_uv[bundle.y == 0].var(axis=-1).mean(axis=0), tiny))
     right_power = np.log(np.maximum(X_uv[bundle.y == 1].var(axis=-1).mean(axis=0), tiny))
     diff_power = left_power - right_power
+    if values_csv is not None:
+        names = [info.ch_names[i] for i in range(len(diff_power))]
+        write_csv(values_csv, ["channel", "left_log_var_uv2", "right_log_var_uv2", "left_minus_right"],
+                  [[name, float(a), float(b), float(c)] for name, a, b, c in zip(names, left_power, right_power, diff_power, strict=True)])
 
     # Shared data-driven scale for the two class maps; symmetric scale for the difference map.
     shared_vlim = (float(min(left_power.min(), right_power.min())), float(max(left_power.max(), right_power.max())))
@@ -418,7 +422,7 @@ def _plot_csp_lda_distribution(bundle, output_path: Path) -> None:
     plt.close(fig)
 
 
-def _plot_eegnet_saliency_topomap(bundle, output_path: Path) -> None:
+def _plot_eegnet_saliency_topomap(bundle, output_path: Path, device: str | None = None) -> None:
     import matplotlib.pyplot as plt
 
     eeg_picks = mne.pick_types(bundle.epochs.info, eeg=True, exclude="bads")
@@ -433,7 +437,7 @@ def _plot_eegnet_saliency_topomap(bundle, output_path: Path) -> None:
     model = train_model(
         model,
         dataset,
-        config=TrainingConfig(epochs=15, batch_size=64, learning_rate=1e-3, seed=42, deterministic=True),
+        config=TrainingConfig(epochs=15, batch_size=64, learning_rate=1e-3, seed=42, deterministic=True, device=device),
     )
     model.eval()
     device = next(model.parameters()).device
@@ -492,8 +496,15 @@ def _plot_csp_feature_projection(bundle, output_path: Path) -> None:
     plt.close(fig)
 
 
-def _plot_sensorimotor_erds_summary(bundle, output_path: Path) -> None:
-    import matplotlib.pyplot as plt
+ERDS_SUMMARY_WINDOW = (0.5, 2.5)  # s after the cue; pre-specified window for mean ERD/ERS
+ERDS_SEARCH_WINDOW = (0.0, 4.0)  # s after the cue; where the most negative value (peak ERD) is searched
+CONTRALATERAL_CHANNEL = {0: "C4", 1: "C3"}  # left-hand imagery -> right hemisphere and vice versa
+CLASS_TITLES = {0: "Left-hand imagery", 1: "Right-hand imagery"}
+BAND_STYLE = {"mu": ("Mu (8-12Hz)", "#2f5d50"), "beta": ("Beta (13-30Hz)", "#c26d3a")}
+
+
+def _collect_sensorimotor_curves(bundle) -> dict[tuple[int, str, str], np.ndarray]:
+    """Band-averaged ERD/ERS curves {(class_id, channel, band): curve} plus {(-1, "times", "times"): times}."""
 
     available = [name for name in ("C3", "C4") if name in bundle.epochs.ch_names]
     if len(available) < 2:
@@ -502,43 +513,82 @@ def _plot_sensorimotor_erds_summary(bundle, output_path: Path) -> None:
 
     epochs = bundle.epochs.copy().pick(available)
     freqs = np.arange(8.0, 31.0, 1.0)
-    n_cycles = freqs / 2.0
-    power = _compute_morlet_power(
-        epochs,
-        freqs=freqs,
-        n_cycles=n_cycles,
-        decim=4,
-    )
-
+    power = _compute_morlet_power(epochs, freqs=freqs, n_cycles=freqs / 2.0, decim=4)
     times = power.times
     display_mask = (times >= ERDS_DISPLAY[0]) & (times <= ERDS_DISPLAY[1])
+    band_masks = {"mu": (freqs >= 8.0) & (freqs <= 12.0), "beta": (freqs >= 13.0) & (freqs <= 30.0)}
 
-    mu_mask = (freqs >= 8.0) & (freqs <= 12.0)
-    beta_mask = (freqs >= 13.0) & (freqs <= 30.0)
-
-    def _band_percent_change(class_id: int, channel_idx: int, band_mask: np.ndarray) -> np.ndarray:
+    curves: dict[tuple[int, str, str], np.ndarray] = {}
+    for class_id in sorted(np.unique(bundle.y)):
         class_mask = bundle.y == class_id
-        class_power = power.data[class_mask, channel_idx, :, :][:, band_mask, :].mean(axis=1)
-        return baseline_percent_change(class_power, times)[display_mask]
+        for channel_idx, channel_name in enumerate(available[:2]):
+            class_power = power.data[class_mask, channel_idx, :, :]
+            for band_name, band_mask in band_masks.items():
+                band_power = class_power[:, band_mask, :].mean(axis=1)
+                curves[(int(class_id), channel_name, band_name)] = baseline_percent_change(band_power, times)[display_mask]
+    curves[(-1, "times", "times")] = times[display_mask]
+    return curves
 
+
+def erds_summary_rows(curves: dict[tuple[int, str, str], np.ndarray], unit: str) -> list[dict[str, object]]:
+    """Window mean, peak ERD (most negative value), and its latency for every class/channel/band curve."""
+
+    times = curves[(-1, "times", "times")]
+    window = (times >= ERDS_SUMMARY_WINDOW[0]) & (times <= ERDS_SUMMARY_WINDOW[1])
+    search = (times >= ERDS_SEARCH_WINDOW[0]) & (times <= ERDS_SEARCH_WINDOW[1])
+    rows = []
+    for (class_id, channel, band), curve in curves.items():
+        if class_id < 0:
+            continue
+        peak_index = int(np.argmin(np.where(search, curve, np.inf)))
+        rows.append(
+            {
+                "unit": unit,
+                "class": INDEX_TO_LABEL[class_id],
+                "channel": channel,
+                "band": band,
+                "side": "contralateral" if CONTRALATERAL_CHANNEL.get(class_id) == channel else "ipsilateral",
+                "window_mean_pct": float(curve[window].mean()),
+                "peak_erd_pct": float(curve[peak_index]),
+                "peak_latency_s": float(times[peak_index]),
+            }
+        )
+    return rows
+
+
+SUMMARY_COLUMNS = ["unit", "class", "channel", "band", "side", "window_mean_pct", "peak_erd_pct", "peak_latency_s"]
+
+
+def _summary_markdown(rows: list[dict[str, object]], title: str) -> list[str]:
+    lines = [f"## {title}", "",
+             f"Window mean over {ERDS_SUMMARY_WINDOW[0]}-{ERDS_SUMMARY_WINDOW[1]} s; peak = most negative value in "
+             f"{ERDS_SEARCH_WINDOW[0]}-{ERDS_SEARCH_WINDOW[1]} s (percent change from the {ERDS_BASELINE} s reference).", "",
+             "| Class | Channel | Band | Side | Window mean (%) | Peak ERD (%) | Peak latency (s) |",
+             "|---|---|---|---|---:|---:|---:|"]
+    for row in rows:
+        lines.append(f"| {row['class']} | {row['channel']} | {row['band']} | {row['side']} | "
+                     f"{row['window_mean_pct']:.1f} | {row['peak_erd_pct']:.1f} | {row['peak_latency_s']:.2f} |")
+    return lines + [""]
+
+
+def _plot_erds_curves(curves, output_path: Path, *, title: str, sem=None) -> None:
+    import matplotlib.pyplot as plt
+
+    times = curves[(-1, "times", "times")]
+    channels = sorted({key[1] for key in curves if key[0] >= 0})
     fig, axes = plt.subplots(2, 2, figsize=(10.5, 6.8), sharex=True, sharey=True)
-    channel_to_col = {name: idx for idx, name in enumerate(available[:2])}
-    class_names = {0: "Left-hand imagery", 1: "Right-hand imagery"}
-    band_colors = {"Mu (8-12Hz)": "#2f5d50", "Beta (13-30Hz)": "#c26d3a"}
-
-    for row_idx, class_id in enumerate(sorted(np.unique(bundle.y))):
-        for channel_name, col_idx in channel_to_col.items():
-            channel_idx = available.index(channel_name)
+    for row_idx, class_id in enumerate((0, 1)):
+        for col_idx, channel_name in enumerate(channels[:2]):
             ax = axes[row_idx, col_idx]
-            mu_curve = _band_percent_change(int(class_id), channel_idx, mu_mask)
-            beta_curve = _band_percent_change(int(class_id), channel_idx, beta_mask)
-
             ax.axhline(0.0, color="#666666", linewidth=1.0, linestyle="--", alpha=0.75)
             ax.axvline(0.0, color="#999999", linewidth=1.0, linestyle=":")
             ax.axvspan(*ERDS_BASELINE, color="#999999", alpha=0.12, linewidth=0)
-            ax.plot(times[display_mask], mu_curve, color=band_colors["Mu (8-12Hz)"], linewidth=2.2, label="Mu (8-12Hz)")
-            ax.plot(times[display_mask], beta_curve, color=band_colors["Beta (13-30Hz)"], linewidth=2.2, label="Beta (13-30Hz)")
-            ax.set_title(f"{class_names[int(class_id)]}\n{channel_name}", fontsize=11)
+            for band, (label, color) in BAND_STYLE.items():
+                key = (class_id, channel_name, band)
+                ax.plot(times, curves[key], color=color, linewidth=2.2, label=label)
+                if sem is not None:
+                    ax.fill_between(times, curves[key] - sem[key], curves[key] + sem[key], color=color, alpha=0.18)
+            ax.set_title(f"{CLASS_TITLES[class_id]}\n{channel_name}", fontsize=11)
             ax.set_xlabel("Time (s)")
             ax.set_ylabel("Power change (%)")
             ax.grid(True, linestyle="--", alpha=0.25)
@@ -546,47 +596,63 @@ def _plot_sensorimotor_erds_summary(bundle, output_path: Path) -> None:
 
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 0.98))
-    fig.suptitle(
-        f"Subject {bundle.metadata.subject_id} Sensorimotor ERD/ERS Summary",
-        y=1.03,
-        fontsize=14,
-    )
+    fig.suptitle(title, y=1.03, fontsize=14)
     fig.subplots_adjust(top=0.82, hspace=0.35, wspace=0.22)
     fig.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close(fig)
 
 
-def _collect_sensorimotor_curves(bundle) -> dict[tuple[int, str, str], np.ndarray]:
-    available = [name for name in ("C3", "C4") if name in bundle.epochs.ch_names]
-    if len(available) < 2:
-        fallback = [name for name in bundle.epochs.ch_names if name.startswith("C")]
-        available = fallback[:2] if len(fallback) >= 2 else list(bundle.epochs.ch_names[:2])
+def _write_curves_csv(path: Path, curves, sem=None) -> None:
+    times = curves[(-1, "times", "times")]
+    header = ["time_s", "class", "channel", "band", "percent_change"] + (["sem"] if sem is not None else [])
+    rows = []
+    for key, curve in curves.items():
+        if key[0] < 0:
+            continue
+        for index, time_value in enumerate(times):
+            row = [float(time_value), INDEX_TO_LABEL[key[0]], key[1], key[2], float(curve[index])]
+            if sem is not None:
+                row.append(float(sem[key][index]))
+            rows.append(row)
+    write_csv(path, header, rows)
 
-    epochs = bundle.epochs.copy().pick(available)
-    freqs = np.arange(8.0, 31.0, 1.0)
-    n_cycles = freqs / 2.0
-    power = _compute_morlet_power(
-        epochs,
-        freqs=freqs,
-        n_cycles=n_cycles,
-        decim=4,
-    )
-    times = power.times
-    display_mask = (times >= ERDS_DISPLAY[0]) & (times <= ERDS_DISPLAY[1])
 
-    mu_mask = (freqs >= 8.0) & (freqs <= 12.0)
-    beta_mask = (freqs >= 13.0) & (freqs <= 30.0)
-    curves: dict[tuple[int, str, str], np.ndarray] = {}
-    for class_id in sorted(np.unique(bundle.y)):
-        class_mask = bundle.y == class_id
-        for channel_name in available[:2]:
-            channel_idx = available.index(channel_name)
-            class_power = power.data[class_mask, channel_idx, :, :]
-            for band_name, band_mask in (("mu", mu_mask), ("beta", beta_mask)):
-                band_power = class_power[:, band_mask, :].mean(axis=1)
-                curves[(int(class_id), channel_name, band_name)] = baseline_percent_change(band_power, times)[display_mask]
-    curves[(-1, "times", "times")] = times[display_mask]
-    return curves
+def export_sensorimotor_erds(bundle, output_dir: Path) -> dict[str, str]:
+    """Figure, curves (CSV), and summary (CSV + Markdown) of one subject's mu/beta ERD/ERS."""
+
+    subject_id = bundle.metadata.subject_id
+    curves = _collect_sensorimotor_curves(bundle)
+    figure = output_dir / f"subject_{subject_id}_sensorimotor_erds.png"
+    _plot_erds_curves(curves, figure, title=f"Subject {subject_id} Sensorimotor ERD/ERS Summary")
+    curves_csv = output_dir / f"subject_{subject_id}_erds_curves.csv"
+    _write_curves_csv(curves_csv, curves)
+    rows = erds_summary_rows(curves, f"S{subject_id}")
+    summary_csv = output_dir / f"subject_{subject_id}_erds_summary.csv"
+    write_csv(summary_csv, SUMMARY_COLUMNS, [[row[c] for c in SUMMARY_COLUMNS] for row in rows])
+    summary_md = output_dir / f"subject_{subject_id}_erds_summary.md"
+    write_text(summary_md, "\n".join(_summary_markdown(rows, f"Subject {subject_id} sensorimotor ERD/ERS")))
+    return {"sensorimotor_erds": str(figure), "erds_curves_csv": str(curves_csv),
+            "erds_summary_csv": str(summary_csv), "erds_summary_md": str(summary_md)}
+
+
+def _lateralization_tests(per_subject_rows: list[dict[str, object]]) -> list[dict[str, object]]:
+    """Contralateral vs ipsilateral window-mean ERD/ERS, paired over subjects, Holm across class x band."""
+
+    tests = []
+    for class_id, class_name in sorted(INDEX_TO_LABEL.items()):
+        for band in BAND_STYLE:
+            contra = {r["unit"]: r["window_mean_pct"] for r in per_subject_rows
+                      if r["class"] == class_name and r["band"] == band and r["side"] == "contralateral"}
+            ipsi = {r["unit"]: r["window_mean_pct"] for r in per_subject_rows
+                    if r["class"] == class_name and r["band"] == band and r["side"] == "ipsilateral"}
+            units = sorted(set(contra) & set(ipsi))
+            if not units:
+                continue
+            result = paired_permutation_test(np.array([contra[u] for u in units]), np.array([ipsi[u] for u in units]))
+            tests.append({"class": class_name, "band": band, **result})
+    for test, p_holm in zip(tests, holm_correction([t["p_value"] for t in tests]), strict=True):
+        test["p_holm"] = float(p_holm)
+    return tests
 
 
 def export_grand_average_sensorimotor_erds(
@@ -595,59 +661,60 @@ def export_grand_average_sensorimotor_erds(
     output_dir: str | Path,
     config: PreprocessingConfig | None = None,
 ) -> dict[str, object]:
-    import matplotlib.pyplot as plt
+    """Grand-average ERD/ERS figure plus exact per-subject and grand-average summaries."""
 
-    bundles = [_build_eda_bundle(subject_id, config=config) for subject_id in subject_ids]
-    curve_maps = [_collect_sensorimotor_curves(bundle) for bundle in bundles]
-    times = curve_maps[0][(-1, "times", "times")]
+    curve_maps = [_collect_sensorimotor_curves(_build_eda_bundle(subject_id, config=config)) for subject_id in subject_ids]
     output_path = ensure_directory(output_dir)
+    times = curve_maps[0][(-1, "times", "times")]
+    keys = [key for key in curve_maps[0] if key[0] >= 0]
+    n = len(curve_maps)
+    mean_curves = {key: np.mean([curves[key] for curves in curve_maps], axis=0) for key in keys}
+    sem_curves = {
+        key: (np.std([curves[key] for curves in curve_maps], axis=0, ddof=1) / np.sqrt(n)) if n > 1 else np.zeros_like(times)
+        for key in keys
+    }
+    mean_curves[(-1, "times", "times")] = times
+
     figure_path = output_path / "grand_average_sensorimotor_erds.png"
+    _plot_erds_curves(mean_curves, figure_path, title=f"Grand-average Sensorimotor ERD/ERS (n = {n}, band = SEM)", sem=sem_curves)
+    _write_curves_csv(output_path / "grand_average_erds_curves.csv", mean_curves, sem=sem_curves)
 
-    fig, axes = plt.subplots(2, 2, figsize=(10.5, 6.8), sharex=True, sharey=True)
-    class_names = {0: "Left-hand imagery", 1: "Right-hand imagery"}
-    band_colors = {"mu": "#2f5d50", "beta": "#c26d3a"}
-    channels = ("C3", "C4")
-    if not all((0, channel, "mu") in curve_maps[0] for channel in channels):
-        channels = tuple(
-            name
-            for name in sorted({key[1] for key in curve_maps[0] if key[0] in (0, 1) and key[2] in ("mu", "beta")})
-            if name not in {"times"}
-        )[:2]
+    per_subject_rows = [row for subject_id, curves in zip(subject_ids, curve_maps, strict=True)
+                        for row in erds_summary_rows(curves, f"S{subject_id}")]
+    write_csv(output_path / "grand_average_erds_per_subject.csv", SUMMARY_COLUMNS,
+              [[row[c] for c in SUMMARY_COLUMNS] for row in per_subject_rows])
+    grand_rows = erds_summary_rows(mean_curves, "grand_average")
+    tests = _lateralization_tests(per_subject_rows)
 
-    for row_idx, class_id in enumerate((0, 1)):
-        for col_idx, channel_name in enumerate(channels):
-            ax = axes[row_idx, col_idx]
-            mu_curves = np.stack([curve_map[(class_id, channel_name, "mu")] for curve_map in curve_maps], axis=0)
-            beta_curves = np.stack([curve_map[(class_id, channel_name, "beta")] for curve_map in curve_maps], axis=0)
-            mu_mean = mu_curves.mean(axis=0)
-            beta_mean = beta_curves.mean(axis=0)
-            mu_sem = mu_curves.std(axis=0, ddof=0) / np.sqrt(mu_curves.shape[0])
-            beta_sem = beta_curves.std(axis=0, ddof=0) / np.sqrt(beta_curves.shape[0])
-
-            ax.axhline(0.0, color="#666666", linewidth=1.0, linestyle="--", alpha=0.75)
-            ax.axvline(0.0, color="#999999", linewidth=1.0, linestyle=":")
-            ax.axvspan(*ERDS_BASELINE, color="#999999", alpha=0.12, linewidth=0)
-            ax.plot(times, mu_mean, color=band_colors["mu"], linewidth=2.2, label="Mu (8-12Hz)")
-            ax.fill_between(times, mu_mean - mu_sem, mu_mean + mu_sem, color=band_colors["mu"], alpha=0.18)
-            ax.plot(times, beta_mean, color=band_colors["beta"], linewidth=2.2, label="Beta (13-30Hz)")
-            ax.fill_between(times, beta_mean - beta_sem, beta_mean + beta_sem, color=band_colors["beta"], alpha=0.18)
-            ax.set_title(f"{class_names[class_id]}\n{channel_name}", fontsize=11)
-            ax.set_xlabel("Time (s)")
-            ax.set_ylabel("Power change (%)")
-            ax.grid(True, linestyle="--", alpha=0.25)
-            ax.set_xlim(times[0], times[-1])
-
-    handles, labels = axes[0, 0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False, bbox_to_anchor=(0.5, 0.98))
-    fig.suptitle("Grand-average Sensorimotor ERD/ERS Summary", y=1.03, fontsize=14)
-    fig.subplots_adjust(top=0.82, hspace=0.35, wspace=0.22)
-    fig.savefig(figure_path, dpi=200, bbox_inches="tight")
-    plt.close(fig)
+    lines = ["# Grand-average sensorimotor ERD/ERS", "", f"Subjects: {', '.join(f'S{s}' for s in subject_ids)} (n = {n}).", ""]
+    lines += _summary_markdown(grand_rows, "Grand-average curve")
+    lines += ["## Per-subject window means (mean +- SEM across subjects)", "",
+              "| Class | Channel | Band | Side | Mean (%) | SEM (%) |", "|---|---|---|---|---:|---:|"]
+    for key in keys:
+        class_name = INDEX_TO_LABEL[key[0]]
+        values = np.array([r["window_mean_pct"] for r in per_subject_rows
+                           if r["class"] == class_name and r["channel"] == key[1] and r["band"] == key[2]])
+        sem = values.std(ddof=1) / np.sqrt(len(values)) if len(values) > 1 else 0.0
+        side = "contralateral" if CONTRALATERAL_CHANNEL.get(key[0]) == key[1] else "ipsilateral"
+        lines.append(f"| {class_name} | {key[1]} | {key[2]} | {side} | {values.mean():.1f} | {sem:.1f} |")
+    lines += ["", "## Lateralization: contralateral vs ipsilateral window mean", "",
+              "Exact paired sign-flip test across subjects; Holm adjustment across the class x band tests.", "",
+              "| Class | Band | n | Mean diff contra-ipsi (%) | Subjects contra < ipsi | p (exact) | p (Holm) |",
+              "|---|---|---:|---:|---:|---:|---:|"]
+    for test in tests:
+        lines.append(f"| {test['class']} | {test['band']} | {test['n_pairs']} | {test['mean_difference']:.1f} | "
+                     f"{test['wins_y']}/{test['n_pairs']} | {test['p_value']:.4f} | {test['p_holm']:.4f} |")
+    summary_md = output_path / "grand_average_erds_summary.md"
+    write_text(summary_md, "\n".join(lines) + "\n")
 
     summary = {
         "subjects": list(subject_ids),
+        "n_subjects": n,
         "artifact": str(figure_path),
-        "n_subjects": len(subject_ids),
+        "curves_csv": str(output_path / "grand_average_erds_curves.csv"),
+        "per_subject_csv": str(output_path / "grand_average_erds_per_subject.csv"),
+        "summary_md": str(summary_md),
+        "lateralization_tests": tests,
     }
     write_json(output_path / "grand_average_sensorimotor_erds.json", summary)
     return summary
@@ -699,6 +766,7 @@ def export_subject_eda_assets(
     subject_id: int,
     output_dir: str | Path,
     config: PreprocessingConfig | None = None,
+    device: str | None = None,
 ) -> dict[str, object]:
     """Export basic subject-level EDA assets from canonical epochs."""
 
@@ -711,7 +779,7 @@ def export_subject_eda_assets(
     topomap_path = output_path / f"subject_{subject_id}_topomap.png"
     erds_path = output_path / f"subject_{subject_id}_erds.png"
     patterns_path = output_path / f"subject_{subject_id}_classical_patterns.png"
-    erds_summary_path = output_path / f"subject_{subject_id}_sensorimotor_erds.png"
+    topomap_csv = output_path / f"subject_{subject_id}_topomap_values.csv"
     riemann_3d_path = output_path / f"subject_{subject_id}_riemann_3d.png"
     csp_lda_path = output_path / f"subject_{subject_id}_csp_lda_distribution.png"
     csp_projection_path = output_path / f"subject_{subject_id}_csp_projection.png"
@@ -721,15 +789,15 @@ def export_subject_eda_assets(
     _plot_psd(bundle, psd_path)
     _plot_pca(bundle, pca_path)
     _plot_tsne(bundle, tsne_path)
-    _plot_topomap(bundle, topomap_path)
+    _plot_topomap(bundle, topomap_path, values_csv=topomap_csv)
     _plot_erds(bundle, erds_path)
     _plot_classical_patterns(bundle, patterns_path)
-    _plot_sensorimotor_erds_summary(bundle, erds_summary_path)
+    erds_outputs = export_sensorimotor_erds(bundle, output_path)
     _plot_riemann_3d(bundle, riemann_3d_path)
     _plot_riemann_lda_distribution(bundle, riemann_lda_path)
     _plot_csp_lda_distribution(bundle, csp_lda_path)
     _plot_csp_feature_projection(bundle, csp_projection_path)
-    _plot_eegnet_saliency_topomap(bundle, eegnet_saliency_path)
+    _plot_eegnet_saliency_topomap(bundle, eegnet_saliency_path, device=device)
 
     summary = {
         "subject_id": subject_id,
@@ -747,7 +815,8 @@ def export_subject_eda_assets(
             "topomap": str(topomap_path),
             "erds": str(erds_path),
             "classical_patterns": str(patterns_path),
-            "sensorimotor_erds": str(erds_summary_path),
+            "topomap_values_csv": str(topomap_csv),
+            **erds_outputs,
             "riemann_3d": str(riemann_3d_path),
             "riemann_lda_distribution": str(riemann_lda_path),
             "csp_lda_distribution": str(csp_lda_path),
@@ -756,4 +825,4 @@ def export_subject_eda_assets(
         },
     }
     write_json(output_path / f"subject_{subject_id}_eda_summary.json", summary)
-    return json.loads((output_path / f"subject_{subject_id}_eda_summary.json").read_text())
+    return read_json(output_path / f"subject_{subject_id}_eda_summary.json")

@@ -3,7 +3,13 @@
 from eeg_motor_imagery_classification.experiments.baseline_classical import run_classical_within_subject_cv
 from eeg_motor_imagery_classification.experiments.baseline_eegnet import run_eegnet_within_subject_cv
 from eeg_motor_imagery_classification.experiments.baseline_riemann import run_riemann_within_subject_cv
+from eeg_motor_imagery_classification.experiments.cross_session import (
+    run_classical_cross_session,
+    run_eegnet_cross_session,
+    run_riemann_cross_session,
+)
 from eeg_motor_imagery_classification.experiments.loso import run_classical_loso, run_eegnet_loso
+from eeg_motor_imagery_classification.experiments.repeated import run_over_training_seeds
 from eeg_motor_imagery_classification.experiments.riemann_protocols import (
     run_riemann_loso,
     run_riemann_transfer,
@@ -20,6 +26,10 @@ from eeg_motor_imagery_classification.experiments.transfer import (
 )
 
 __all__ = [
+    "run_classical_cross_session",
+    "run_eegnet_cross_session",
+    "run_over_training_seeds",
+    "run_riemann_cross_session",
     "run_classical_loso",
     "run_classical_transfer_fbcsp",
     "run_classical_transfer_fbcsp_repeated_sweep",

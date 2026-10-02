@@ -19,6 +19,9 @@ RESULT_SOURCES: dict[str, tuple[str, ...]] = {
     "loso_classical": ("loso_classical", "repro_classical_loso"),
     "loso_riemann": ("loso_riemann", "repro_riemann_loso"),
     "loso_eegnet": ("loso_eegnet", "loso_eegnet_es50", "loso_eegnet_e30", "repro_eegnet_loso"),
+    "cross_session_classical": ("cross_session_classical",),
+    "cross_session_riemann": ("cross_session_riemann",),
+    "cross_session_eegnet": ("cross_session_eegnet",),
     "transfer_fbcsp": (
         "transfer_classical_all_targets_seed42_43",
         "transfer_classical_all_targets_seed42_43_v2",
@@ -44,7 +47,7 @@ def _load_json_if_exists(path: str | Path) -> dict[str, object] | None:
     target = Path(path)
     if not target.exists():
         return None
-    return json.loads(target.read_text())
+    return json.loads(target.read_text(encoding="utf-8"))
 
 
 def load_saved_results(outputs_dir: str | Path) -> dict[str, tuple[dict[str, object], Path]]:
@@ -63,7 +66,7 @@ def load_saved_results(outputs_dir: str | Path) -> dict[str, tuple[dict[str, obj
 
 
 def split_model_results(loaded: dict[str, tuple[dict[str, object], Path]], protocol: str) -> dict[str, dict[str, object]]:
-    """Return {display model name: result} for the within-subject or LOSO protocol."""
+    """Return {display model name: result} for "within", "loso", or "cross_session"."""
 
     models: dict[str, dict[str, object]] = {}
     classical = loaded.get(f"{protocol}_classical")
@@ -483,10 +486,12 @@ def _export_report_assets_impl(root: Path, assets: Path) -> dict[str, object]:
 
     within_models = split_model_results(loaded, "within")
     loso_models = split_model_results(loaded, "loso")
-    _export_protocol(assets, generated, within_models, prefix="within_subject", title="Within-Subject Accuracy", color="#2f5d50")
+    cross_session_models = split_model_results(loaded, "cross_session")
+    _export_protocol(assets, generated, within_models, prefix="within_subject", title="Within-Subject CV Accuracy (sessions pooled)", color="#2f5d50")
     _export_protocol(assets, generated, loso_models, prefix="loso", title="LOSO Accuracy", color="#385f8c")
+    _export_protocol(assets, generated, cross_session_models, prefix="cross_session", title="Cross-Session Accuracy (session 1 -> 2)", color="#6b4c8a")
 
-    for protocol, prefix, label in (("within", "within_subject", "Within-Subject"), ("loso", "loso", "LOSO")):
+    for protocol, prefix, label in (("within", "within_subject", "Within-Subject"), ("loso", "loso", "LOSO"), ("cross_session", "cross_session", "Cross-Session")):
         eegnet = loaded.get(f"{protocol}_eegnet")
         histories = eegnet[0].get("training_histories") if eegnet else None
         if isinstance(histories, list) and histories:

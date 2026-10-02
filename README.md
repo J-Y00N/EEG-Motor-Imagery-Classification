@@ -19,6 +19,8 @@ Summary (9 subjects; mean accuracy, Holm-corrected exact paired tests):
 ## Report
 
 - full paper-style report: [docs/report.md](docs/report.md)
+- pre-specified analysis plan for the confirmatory comparisons: [docs/analysis_plan.md](docs/analysis_plan.md)
+- reproduction protocol for macOS / Linux / Windows and MPS / CUDA / CPU: [docs/reproduction.md](docs/reproduction.md)
 - generated figures: [docs/assets/generated](docs/assets/generated)
 
 ## Scope
@@ -28,7 +30,7 @@ Summary (9 subjects; mean accuracy, Holm-corrected exact paired tests):
 - classical baselines: raw power + LDA, CSP + LDA, FBCSP + LDA
 - riemannian baseline: covariance + tangent space + LDA
 - deep baseline: EEGNet
-- protocol families: within-subject CV, LOSO, cross-subject transfer
+- protocol families: cross-session (session 1 -> 2), within-subject CV, LOSO, cross-subject transfer
 
 ## Status
 
@@ -39,12 +41,13 @@ Included:
 - within-subject, LOSO, and cross-subject transfer protocols
 - all-target transfer runs, repeated-seed transfer checks, and artifact export
 - subject-level statistics: sample SD, t-based 95% CIs, exact paired sign-flip tests with Holm correction (`export_stats`)
+- cross-session evaluation, EEGNet repeated over training seeds, device selection (`--device`), and a cross-platform runner
+- exact ERD/ERS summaries (CSV/Markdown) next to every EDA figure
 - report figures, EDA figures, and a paper-style report in `docs/report.md`
 
 Possible extensions:
 
-- cross-session evaluation (train on session 1, test on session 2); within-subject CV currently pools both sessions
-- repeated training seeds for within-subject and LOSO EEGNet, and more transfer seeds
+- more transfer seeds and additional datasets to increase statistical power
 - subject-alignment methods (for example Riemannian re-centering) for transfer
 
 ## Repository Structure
@@ -79,6 +82,8 @@ python -m pip install --upgrade pip setuptools wheel
 python -m pip install -e .
 ```
 
+On Windows (PowerShell) create and activate the environment with `py -3 -m venv .venv` and `.\.venv\Scripts\Activate.ps1`. For an NVIDIA GPU, install the CUDA build of PyTorch first; see [docs/reproduction.md](docs/reproduction.md).
+
 Install developer checks:
 
 ```bash
@@ -97,10 +102,22 @@ python -m pytest -q
 - `riemann_baseline`: within-subject stratified CV for tangent-space Riemannian baseline
 - `riemann_loso`: leave-one-subject-out evaluation for tangent-space baseline
 - `riemann_transfer`: zero-shot and few-shot transfer for tangent-space baseline
+- `classical_cross_session`, `riemann_cross_session`, `eegnet_cross_session`: train on session 1 and test on session 2 of each subject
 
 These protocols are intentionally separated so within-subject, subject-independent, and adaptation claims are not mixed together.
 
 ## Usage
+
+Run the whole protocol, or a group of stages, on any platform:
+
+```bash
+python -m eeg_motor_imagery_classification.reproduce --list
+python -m eeg_motor_imagery_classification.reproduce --stages primary --device auto
+```
+
+`--device` accepts `auto`, `cpu`, `cuda`, or `mps` for every command. `--seed-list` repeats `eegnet_baseline`, `eegnet_loso`, and `eegnet_cross_session` over training seeds and averages per subject.
+
+Individual experiments:
 
 Run a classical within-subject baseline:
 
@@ -195,10 +212,11 @@ This writes `outputs/statistics/statistics.md` and `statistics.json`.
 
 - CV splits, transfer calibration splits, and EEGNet training default to `seed=42`; `--seed-list` repeats transfer sweeps, and each seed also sets the EEGNet training seed
 - EEGNet requests deterministic torch kernels (`--non-deterministic` opts out), but runs on GPU or Apple MPS are not guaranteed to be bit-for-bit reproducible
-- EEGNet uses validation-based early stopping with `50` max epochs by default and restores the best validation epoch
+- EEGNet uses validation-based early stopping (CLI default: `50` max epochs) and restores the best validation epoch; the analysis plan fixes `300` max epochs with patience `30` and five training seeds
+- every `result.json` records the experiment settings (`config`) and the software/hardware environment (`environment`)
 - reported results were produced with Python `3.14.7`, MOABB `1.7.2`, MNE `1.13.2`, PyTorch `2.14.0` (Apple MPS), scikit-learn `1.9.1`, pyRiemann `0.12`; the full environment is listed in `requirements-lock.txt`
 
-Reproduction flow for the reported results (output names are the ones the export steps look for):
+The results currently in the report (EEGNet: one training seed, 50 max epochs) were produced with the commands below; output names are the ones the export steps look for. The next round follows the pre-specified recipe in [docs/analysis_plan.md](docs/analysis_plan.md) and is run with `python -m eeg_motor_imagery_classification.reproduce` ([docs/reproduction.md](docs/reproduction.md)).
 
 ```bash
 python -m eeg_motor_imagery_classification.cli --experiment classical_baseline --seed 42 --output-dir outputs/within_subject_classical

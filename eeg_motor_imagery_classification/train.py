@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
+import os
 import random
 
 import numpy as np
@@ -13,6 +14,12 @@ from torch import nn
 from torch.utils.data import DataLoader
 
 from eeg_motor_imagery_classification.data.datasets import EpochDataset
+
+# Deterministic cuBLAS kernels on CUDA require this before the first cuBLAS call
+# (https://docs.nvidia.com/cuda/cublas/index.html#results-reproducibility). No effect on CPU/MPS.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+
+DEVICE_CHOICES = ("auto", "cpu", "cuda", "mps")
 
 
 @dataclass(frozen=True)
@@ -42,13 +49,27 @@ class TrainingResult:
 
 
 def default_device() -> str:
-    """Pick the best available torch device."""
+    """Pick the best available torch device (CUDA, then Apple MPS, then CPU)."""
 
     if torch.cuda.is_available():
         return "cuda"
     if torch.backends.mps.is_available():
         return "mps"
     return "cpu"
+
+
+def resolve_device(requested: str | None) -> str:
+    """Validate a requested device ("auto", "cpu", "cuda", "mps") and return a concrete one."""
+
+    if requested in (None, "auto"):
+        return default_device()
+    if requested not in DEVICE_CHOICES:
+        raise ValueError(f"Unknown device {requested!r}; choose one of {DEVICE_CHOICES}.")
+    if requested == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA was requested but torch.cuda.is_available() is False (check the CUDA build of torch).")
+    if requested == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError("MPS was requested but torch.backends.mps.is_available() is False.")
+    return requested
 
 
 def seed_everything(seed: int, deterministic: bool = True) -> None:
@@ -144,7 +165,7 @@ def fit_model(
 
     cfg = config or TrainingConfig()
     seed_everything(cfg.seed, deterministic=cfg.deterministic)
-    device = torch.device(cfg.device or default_device())
+    device = torch.device(resolve_device(cfg.device))
     train_loader = _build_loader(train_dataset, cfg, shuffle=True)
     eval_train_loader = _build_loader(train_dataset, cfg, shuffle=False)
     val_loader = _build_loader(validation_dataset, cfg, shuffle=False) if validation_dataset is not None else None
@@ -225,7 +246,7 @@ def predict_model(model: nn.Module, dataset, *, config: TrainingConfig | None = 
     """Run inference on one dataset and return NumPy class predictions."""
 
     cfg = config or TrainingConfig()
-    device = torch.device(cfg.device or default_device())
+    device = torch.device(resolve_device(cfg.device))
     loader = _build_loader(dataset, cfg, shuffle=False)
 
     model = model.to(device)

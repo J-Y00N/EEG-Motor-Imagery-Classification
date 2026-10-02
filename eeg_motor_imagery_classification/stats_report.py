@@ -25,6 +25,47 @@ from eeg_motor_imagery_classification.utils import ensure_directory, write_json,
 
 TRANSFER_PAIRS = [("EEGNet", "Riemann"), ("Riemann", "FBCSP"), ("EEGNet", "FBCSP")]
 
+# Pre-specified confirmatory comparisons (docs/analysis_plan.md). They are tested as one family:
+# exact paired sign-flip tests on subject-level accuracy, Holm-adjusted across these tests only.
+PRIMARY_COMPARISONS: list[tuple[str, str, str]] = [
+    ("cross_session", "EEGNet", "FBCSP + LDA"),
+    ("cross_session", "Riemann + Tangent Space + LDA", "FBCSP + LDA"),
+    ("loso", "EEGNet", "Riemann + Tangent Space + LDA"),
+]
+PROTOCOL_TITLES = {"within": "Within-Subject CV (sessions pooled)", "loso": "LOSO", "cross_session": "Cross-Session (session 1 -> 2)"}
+
+
+def _primary_statistics(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[dict[str, object]]:
+    scores: dict[str, dict[str, float]] = {}
+    pairs: list[tuple[str, str]] = []
+    for protocol, model_a, model_b in PRIMARY_COMPARISONS:
+        models = split_model_results(loaded, protocol)
+        if model_a not in models or model_b not in models:
+            continue
+        key_a, key_b = f"{model_a}@{protocol}", f"{model_b}@{protocol}"
+        scores[key_a] = subject_accuracies(models[model_a])
+        scores[key_b] = subject_accuracies(models[model_b])
+        pairs.append((key_a, key_b))
+    comparisons = compare_models_pairwise(scores, pairs)
+    for item in comparisons:
+        item["setting"] = PROTOCOL_TITLES[str(item["model_a"]).split("@")[1]]
+        item["model_a"] = str(item["model_a"]).split("@")[0]
+        item["model_b"] = str(item["model_b"]).split("@")[0]
+    return comparisons
+
+
+def _environment_lines(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[str]:
+    lines = ["| Result | Python | torch | Device | CUDA device | Platform |", "|---|---|---|---|---|---|"]
+    for key, (payload, _path) in loaded.items():
+        env = payload.get("environment")
+        if not isinstance(env, dict):
+            lines.append(f"| {key} | not recorded | | | | |")
+            continue
+        packages = env.get("packages", {})
+        device = (payload.get("config") or {}).get("device", env.get("torch_device_requested", "?"))
+        lines.append(f"| {key} | {env.get('python')} | {packages.get('torch')} | {device} | {env.get('cuda_device_name') or '-'} | {env.get('platform')} |")
+    return lines
+
 
 def _protocol_statistics(models: dict[str, dict[str, object]]) -> dict[str, object]:
     scores = {name: subject_accuracies(result) for name, result in models.items()}
@@ -112,7 +153,14 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
              "Units are subjects (transfer: target subjects, seeds averaged within target). SD uses ddof=1, "
              "CIs use the t distribution, paired sign-flip tests are exact, and p-values are Holm-adjusted within each family.", ""]
 
-    for protocol, title in (("within", "Within-Subject CV"), ("loso", "LOSO")):
+    primary = _primary_statistics(loaded)
+    result["primary"] = primary
+    lines += ["## Primary (pre-specified) comparisons", "",
+              f"Family of {len(PRIMARY_COMPARISONS)} tests defined in docs/analysis_plan.md; Holm adjustment across this family only. "
+              f"{len(primary)} of {len(PRIMARY_COMPARISONS)} comparisons have results available.", "",
+              *_comparison_lines(primary, with_setting=True), ""]
+
+    for protocol, title in PROTOCOL_TITLES.items():
         models = split_model_results(loaded, protocol)
         if not models:
             continue
@@ -120,6 +168,12 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
         result[protocol] = stats
         lines += [f"## {title}", "", *_descriptive_lines(stats["descriptives"]), "", *_comparison_lines(stats["comparisons"]), "",
                   "Per-subject accuracy:", "", *_per_subject_lines(stats["per_subject"]), ""]
+        seed_sd = models.get("EEGNet", {}).get("per_subject_seed_sd")
+        if isinstance(seed_sd, dict) and seed_sd:
+            seeds = ", ".join(str(seed) for seed in models["EEGNet"].get("seeds", []))
+            lines += [f"EEGNet accuracy is averaged over training seeds {seeds}; between-seed SD per subject:", "",
+                      "| " + " | ".join(seed_sd) + " |", "|" + "|".join(["---:"] * len(seed_sd)) + "|",
+                      "| " + " | ".join(f"{value:.4f}" for value in seed_sd.values()) + " |", ""]
 
     transfer_models = {name: loaded[key][0] for name, key in (("FBCSP", "transfer_fbcsp"), ("Riemann", "transfer_riemann"), ("EEGNet", "transfer_eegnet")) if key in loaded}
     if transfer_models:
@@ -131,6 +185,7 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
         lines += ["### Paired comparisons", "", *_comparison_lines(stats["comparisons"], with_setting=True), ""]
 
     lines += ["## Runtime (wall-clock fit + predict, machine-specific)", "", *_runtime_lines(loaded), ""]
+    lines += ["## Environment", "", *_environment_lines(loaded), ""]
     lines += ["## Sources", "", *[f"- `{key}`: `{path}`" for key, path in result["sources"].items()], ""]
     write_json(out / "statistics.json", result)
     write_text(out / "statistics.md", "\n".join(lines))
