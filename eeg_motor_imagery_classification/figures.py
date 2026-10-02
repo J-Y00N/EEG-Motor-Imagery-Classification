@@ -346,7 +346,7 @@ def _save_pipeline_figure(path: Path) -> None:
     geometric = box(0.38, 0.50, 0.20, 0.14, "Geometric Branch\nCovariance\nTangent Space\nLDA", fc="#e4f1eb")
     deep = box(0.68, 0.50, 0.18, 0.14, "Deep Branch\nEEGNet", fc="#f7e9dd")
 
-    shared = box(0.36, 0.27, 0.24, 0.10, "Shared Evaluation Regimes\nAll model families use all protocols", fc="#eef4fb", fs=10)
+    shared = box(0.34, 0.255, 0.28, 0.125, "Shared Evaluation Regimes\nWithin / LOSO: all models\nTransfer: FBCSP, Riemann, EEGNet", fc="#eef4fb", fs=10)
     within = box(0.72, 0.30, 0.22, 0.085, "Within-Subject CV", fc="#ecf5fb")
     loso = box(0.72, 0.185, 0.22, 0.085, "LOSO", fc="#ecf5fb")
     transfer = box(0.72, 0.04, 0.22, 0.115, "Cross-Subject Transfer\nzero/few-shot\nrepeated seeds", fc="#ecf5fb", fs=10)

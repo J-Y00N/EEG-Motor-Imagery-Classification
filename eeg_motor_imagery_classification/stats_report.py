@@ -64,6 +64,29 @@ def _descriptive_lines(descriptives: dict[str, dict[str, float]]) -> list[str]:
     return lines
 
 
+def _per_subject_lines(per_subject: dict[str, dict[str, float]]) -> list[str]:
+    models = list(per_subject)
+    labels = sorted({label for scores in per_subject.values() for label in scores}, key=lambda x: (len(x), x))
+    lines = ["| Subject | " + " | ".join(models) + " |", "|---|" + "|".join(["---:"] * len(models)) + "|"]
+    for label in labels:
+        cells = [f"{per_subject[m][label]:.4f}" if label in per_subject[m] else "-" for m in models]
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    return lines
+
+
+def _runtime_lines(loaded: dict[str, tuple[dict[str, object], Path]]) -> list[str]:
+    lines = ["| Result | Model | Runtime (s) |", "|---|---|---:|"]
+    for key, (payload, _path) in loaded.items():
+        if key.endswith("_classical"):
+            for name in ("raw_power", "csp", "fbcsp"):
+                runtime = payload.get(name, {}).get("runtime_seconds") if isinstance(payload.get(name), dict) else None
+                if runtime is not None:
+                    lines.append(f"| {key} | {name} | {float(runtime):.1f} |")
+        elif payload.get("runtime_seconds") is not None:
+            lines.append(f"| {key} | - | {float(payload['runtime_seconds']):.1f} |")
+    return lines
+
+
 def _comparison_lines(comparisons: list[dict[str, object]], *, with_setting: bool = False) -> list[str]:
     head = "| Setting | A | B | n | Mean diff (A-B) | Wins A/B | p (exact) | p (Holm) |" if with_setting else \
         "| A | B | n | Mean diff (A-B) | Wins A/B | p (exact) | p (Holm) |"
@@ -95,7 +118,8 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
             continue
         stats = _protocol_statistics(models)
         result[protocol] = stats
-        lines += [f"## {title}", "", *_descriptive_lines(stats["descriptives"]), "", *_comparison_lines(stats["comparisons"]), ""]
+        lines += [f"## {title}", "", *_descriptive_lines(stats["descriptives"]), "", *_comparison_lines(stats["comparisons"]), "",
+                  "Per-subject accuracy:", "", *_per_subject_lines(stats["per_subject"]), ""]
 
     transfer_models = {name: loaded[key][0] for name, key in (("FBCSP", "transfer_fbcsp"), ("Riemann", "transfer_riemann"), ("EEGNet", "transfer_eegnet")) if key in loaded}
     if transfer_models:
@@ -106,6 +130,7 @@ def export_statistics(*, project_root: str | Path, output_dir: str | Path) -> di
             lines += [f"### {name}", "", *_descriptive_lines(per_setting), ""]
         lines += ["### Paired comparisons", "", *_comparison_lines(stats["comparisons"], with_setting=True), ""]
 
+    lines += ["## Runtime (wall-clock fit + predict, machine-specific)", "", *_runtime_lines(loaded), ""]
     lines += ["## Sources", "", *[f"- `{key}`: `{path}`" for key, path in result["sources"].items()], ""]
     write_json(out / "statistics.json", result)
     write_text(out / "statistics.md", "\n".join(lines))

@@ -9,6 +9,7 @@ docs/assets/**/*.json
 docs/assets/**/*_eda_summary.json
 docs/assets/generated/*.csv
 docs/assets/generated/*.md
+legacy/*
 *.egg-info/
 
 # Byte-compiled / optimized / DLL files

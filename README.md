@@ -9,11 +9,12 @@
 This repository presents an EEG motor imagery classification project with unified preprocessing, explicit evaluation protocols, reproducible experiment entry points, and report-ready artifacts.
 It compares classical, geometric, and deep baselines for left-versus-right motor imagery under clearly separated within-subject, subject-independent, and transfer settings.
 
-Interpretation:
+Summary (9 subjects; mean accuracy, Holm-corrected exact paired tests):
 
-- within-subject: `FBCSP` is the strongest verified baseline
-- LOSO: `EEGNet` is the strongest verified subject-independent baseline
-- cross-subject transfer: `EEGNet` is the strongest verified transfer model, with `Riemann` as the strongest non-deep alternative
+- within-subject: `FBCSP` has the highest mean (`0.818`), but it does not differ significantly from `Riemann` (`0.798`) or `CSP` (`0.781`)
+- LOSO: `EEGNet` has the highest mean (`0.707`) and is the best model for 8 of 9 held-out subjects, but this is not significant after correction
+- transfer: `EEGNet > Riemann > FBCSP` at every calibration budget, again without significance after correction
+- EEGNet results depend on the training budget and vary between runs; see the report for details
 
 ## Report
 
@@ -37,13 +38,14 @@ Included:
 - classical, Riemannian, and EEGNet baselines
 - within-subject, LOSO, and cross-subject transfer protocols
 - all-target transfer runs, repeated-seed transfer checks, and artifact export
+- subject-level statistics: sample SD, t-based 95% CIs, exact paired sign-flip tests with Holm correction (`export_stats`)
 - report figures, EDA figures, and a paper-style report in `docs/report.md`
 
 Possible extensions:
 
-- broader repeated-seed transfer sweeps beyond the current verified seeds
-- deeper statistical testing and sensitivity analysis
-- optional expansion of interpretability figures and harder transfer variants such as domain-adaptation extensions
+- cross-session evaluation (train on session 1, test on session 2); within-subject CV currently pools both sessions
+- repeated training seeds for within-subject and LOSO EEGNet, and more transfer seeds
+- subject-alignment methods (for example Riemannian re-centering) for transfer
 
 ## Repository Structure
 
@@ -81,7 +83,7 @@ Install developer checks:
 
 ```bash
 python -m pip install -e ".[dev]"
-pytest tests/test_imports.py
+python -m pytest -q
 ```
 
 ## Experiment Protocols
@@ -178,144 +180,71 @@ python -m eeg_motor_imagery_classification.cli \
   --output-dir docs/assets/generated
 ```
 
-When saved experiment outputs are available locally, this export step also generates representative confusion-matrix figures for within-subject, LOSO, and repeated-seed transfer summaries.
+When saved experiment outputs are available locally, this export step also generates confusion-matrix figures for within-subject, LOSO, and per-setting transfer results, and prints the result files it used (`sources`) and those it could not find (`missing_sources`).
 
-## Reproducibility
-
-- classical CV splits and transfer calibration splits default to `seed=42`
-- repeated transfer evaluation can be enabled with `--seed-list`
-- EEGNet runs seed Python, NumPy, and torch via [`train.py`](eeg_motor_imagery_classification/train.py)
-- deterministic torch algorithms are enabled by default for repeatable deep-learning runs
-- EEGNet now uses validation-based early stopping by default, with `50` max epochs and the best validation epoch restored after training
-- you can override the seed with `--seed` and opt out of deterministic kernels with `--non-deterministic`
-
-Recommended reproduction flow:
+Compute subject-level statistics and paired model comparisons from the saved outputs:
 
 ```bash
 python -m eeg_motor_imagery_classification.cli \
-  --experiment riemann_baseline \
-  --seed 42 \
-  --output-dir outputs/repro_riemann_within
-
-python -m eeg_motor_imagery_classification.cli \
-  --experiment eegnet_loso \
-  --epochs 50 \
-  --batch-size 64 \
-  --validation-split 0.2 \
-  --seed 42 \
-  --output-dir outputs/repro_eegnet_loso
-
-python -m eeg_motor_imagery_classification.cli \
-  --experiment riemann_transfer \
-  --all-target-subjects \
-  --seed-list 42,43 \
-  --output-dir outputs/repro_transfer_riemann_seed42_43
+  --experiment export_stats
 ```
 
-## Sanity Check
+This writes `outputs/statistics/statistics.md` and `statistics.json`.
 
-The following numbers are a verified subject-level sanity check on `subject 1` using the project pipeline:
+## Reproducibility
 
-| Model | Protocol | Setting | Accuracy | Balanced Accuracy | Macro F1 |
-|---|---|---|---:|---:|---:|
-| Raw Power + LDA | within-subject CV | default | `0.5000` | `0.5000` | `0.3333` |
-| CSP + LDA | within-subject CV | default | `0.8368` | `0.8371` | `0.8353` |
-| FBCSP + LDA | within-subject CV | default | `0.9132` | `0.9137` | `0.9129` |
-| Riemann + Tangent Space + LDA | within-subject CV | default | `0.8368` | `0.8374` | `0.8360` |
-| EEGNet | within-subject CV | `5` epochs verification run | `0.5381` | `0.5365` | `0.5039` |
+- CV splits, transfer calibration splits, and EEGNet training default to `seed=42`; `--seed-list` repeats transfer sweeps, and each seed also sets the EEGNet training seed
+- EEGNet requests deterministic torch kernels (`--non-deterministic` opts out), but runs on GPU or Apple MPS are not guaranteed to be bit-for-bit reproducible
+- EEGNet uses validation-based early stopping with `50` max epochs by default and restores the best validation epoch
+- reported results were produced with Python `3.14.7`, MOABB `1.7.2`, MNE `1.13.2`, PyTorch `2.14.0` (Apple MPS), scikit-learn `1.9.1`, pyRiemann `0.12`; the full environment is listed in `requirements-lock.txt`
 
-These numbers are sanity-check references, not the main all-subject result tables.
+Reproduction flow for the reported results (output names are the ones the export steps look for):
 
-## Main Results
+```bash
+python -m eeg_motor_imagery_classification.cli --experiment classical_baseline --seed 42 --output-dir outputs/within_subject_classical
+python -m eeg_motor_imagery_classification.cli --experiment riemann_baseline --seed 42 --output-dir outputs/within_subject_riemann
+python -m eeg_motor_imagery_classification.cli --experiment eegnet_baseline --epochs 50 --validation-split 0.2 --seed 42 --output-dir outputs/within_subject_eegnet
 
-The `within-subject CV` section below summarizes the classical baselines, the Riemannian baseline, and the all-subject `EEGNet` baseline under one shared protocol.
+python -m eeg_motor_imagery_classification.cli --experiment classical_loso --output-dir outputs/loso_classical
+python -m eeg_motor_imagery_classification.cli --experiment riemann_loso --output-dir outputs/loso_riemann
+python -m eeg_motor_imagery_classification.cli --experiment eegnet_loso --epochs 50 --validation-split 0.2 --seed 42 --output-dir outputs/loso_eegnet
 
-Summary:
+python -m eeg_motor_imagery_classification.cli --experiment classical_transfer --all-target-subjects --seed-list 42,43 --output-dir outputs/transfer_classical_all_targets_seed42_43
+python -m eeg_motor_imagery_classification.cli --experiment riemann_transfer --all-target-subjects --seed-list 42,43 --output-dir outputs/transfer_riemann_all_targets_seed42_43
+python -m eeg_motor_imagery_classification.cli --experiment eegnet_transfer --all-target-subjects --seed-list 42,43 --epochs 50 --validation-split 0.2 --output-dir outputs/transfer_eegnet_all_targets_seed42_43
 
-| Model | Protocol | Subjects | Accuracy Mean ± Std | Balanced Accuracy Mean ± Std | Macro F1 Mean ± Std |
-|---|---|---:|---:|---:|---:|
-| Raw Power + LDA | within-subject CV | `9` | `0.5355 ± 0.0625` | `0.5364 ± 0.0620` | `0.4210 ± 0.1162` |
-| CSP + LDA | within-subject CV | `9` | `0.7810 ± 0.1290` | `0.7810 ± 0.1287` | `0.7793 ± 0.1303` |
-| FBCSP + LDA | within-subject CV | `9` | `0.8183 ± 0.1304` | `0.8184 ± 0.1304` | `0.8175 ± 0.1310` |
-| Riemann + Tangent Space + LDA | within-subject CV | `9` | `0.7956 ± 0.1171` | `0.7956 ± 0.1171` | `0.7946 ± 0.1176` |
-| EEGNet | within-subject CV, `50` max epochs + early stopping | `9` | `0.6857 ± 0.1835` | `0.6859 ± 0.1832` | `0.6566 ± 0.2124` |
+python -m eeg_motor_imagery_classification.cli --experiment export_assets --output-dir docs/assets/generated
+python -m eeg_motor_imagery_classification.cli --experiment export_stats
+```
 
-The completed full runs show the same overall pattern as the verification snapshot: `raw power` stays near chance, `CSP` and `Riemann` are strong, `FBCSP` is currently the strongest verified classical baseline, and the current `EEGNet` recipe with validation-based early stopping still does not surpass the best classical methods under the same within-subject protocol.
+## Results
 
-Subject-level spread is substantial. In practice, subjects such as `S2` remain difficult across model families, whereas subjects such as `S8` are much easier, which is why this project treats per-subject reporting and protocol separation as first-class requirements rather than optional extras.
+All values are accuracy; mean ± sample SD across the 9 subjects (transfer: target subjects, seeds averaged within target). Full tables, per-subject values, and paired tests are in [docs/report.md](docs/report.md).
 
-## Completed LOSO Run
+| Model | Within-subject CV | LOSO |
+|---|---:|---:|
+| Raw Power + LDA | `0.7099 ± 0.1331` | `0.6134 ± 0.0938` |
+| CSP + LDA | `0.7810 ± 0.1368` | `0.5907 ± 0.1148` |
+| FBCSP + LDA | `0.8183 ± 0.1383` | `0.5648 ± 0.0678` |
+| Riemann + Tangent Space + LDA | `0.7983 ± 0.1245` | `0.6285 ± 0.1039` |
+| EEGNet (`50` max epochs + early stopping) | `0.6933 ± 0.1862` | `0.7068 ± 0.1481` |
 
-The classical, `Riemann + Tangent Space + LDA`, and `EEGNet` LOSO results give a subject-independent comparison table under one shared protocol.
-
-| Model | Protocol | Subjects | Accuracy Mean ± Std | Balanced Accuracy Mean ± Std | Macro F1 Mean ± Std |
-|---|---|---:|---:|---:|---:|
-| Raw Power + LDA | LOSO | `9` | `0.5270 ± 0.0517` | `0.5270 ± 0.0517` | `0.4045 ± 0.1043` |
-| CSP + LDA | LOSO | `9` | `0.5907 ± 0.1082` | `0.5907 ± 0.1082` | `0.5258 ± 0.1516` |
-| FBCSP + LDA | LOSO | `9` | `0.5648 ± 0.0639` | `0.5648 ± 0.0639` | `0.5104 ± 0.1143` |
-| Riemann + Tangent Space + LDA | LOSO | `9` | `0.6258 ± 0.0989` | `0.6258 ± 0.0989` | `0.5895 ± 0.1307` |
-| EEGNet | LOSO, `50` max epochs + early stopping | `9` | `0.6971 ± 0.1358` | `0.6971 ± 0.1358` | `0.6829 ± 0.1481` |
-
-Under LOSO, `EEGNet` is currently the strongest verified subject-independent baseline, followed by `Riemann`, while `CSP` slightly outperforms `FBCSP`. That ordering differs from the within-subject setting, which is exactly why protocol separation matters.
-
-Taken together with the EDA exports, this also makes the qualitative interpretation clearer: some subjects express cleaner sensorimotor lateralization than others, and that variability propagates into the downstream decoding tables. The key protocol message is simple: within-subject `FBCSP` is strongest in the subject-specific regime, but under strict subject-independent evaluation `EEGNet` rises to the top among the verified baselines.
-
-## Completed Transfer Runs
-
-Transfer evaluation is now verified across all available target subjects, using `zero_shot`, `5_shot`, `10_shot`, `20_shot`, and `30_shot` adaptation settings.
-
-All-target transfer summary:
-
-| Setting | FBCSP | Riemann | EEGNet |
+| Transfer setting | FBCSP | Riemann | EEGNet |
 |---|---:|---:|---:|
-| `zero_shot` | `0.5640` | `0.6366` | `0.6960` |
-| `5_shot` | `0.5687` | `0.6744` | `0.7145` |
-| `10_shot` | `0.5772` | `0.6829` | `0.7492` |
-| `20_shot` | `0.5818` | `0.7006` | `0.7701` |
-| `30_shot` | `0.5903` | `0.7191` | `0.7670` |
+| `zero_shot` | `0.5664 ± 0.0650` | `0.6331 ± 0.1056` | `0.7079 ± 0.1455` |
+| `5_shot` | `0.5687 ± 0.0698` | `0.6671 ± 0.1208` | `0.7195 ± 0.1567` |
+| `10_shot` | `0.5745 ± 0.0710` | `0.6740 ± 0.1232` | `0.7469 ± 0.1611` |
+| `20_shot` | `0.5826 ± 0.0700` | `0.6968 ± 0.1218` | `0.7569 ± 0.1560` |
+| `30_shot` | `0.5887 ± 0.0830` | `0.7106 ± 0.1327` | `0.7612 ± 0.1570` |
 
-Aggregate summaries:
+`k_shot` means `k` calibration trials per class. FBCSP and Riemann adapt by retraining on source plus calibration trials; EEGNet is fine-tuned on the calibration trials.
 
-| Model | Targets | Accuracy Mean ± Std | Balanced Accuracy Mean ± Std | Macro F1 Mean ± Std |
-|---|---|---:|---:|---:|
-| FBCSP Transfer | `all` | `0.5764 ± 0.0099` | `0.5764 ± 0.0099` | `0.5211 ± 0.0112` |
-| Riemann Transfer | `all` | `0.6827 ± 0.0280` | `0.6827 ± 0.0280` | `0.6675 ± 0.0399` |
-| EEGNet Transfer, `seed 42`, `50` max epochs + early stopping | `all` | `0.7394 ± 0.0293` | `0.7394 ± 0.0293` | `0.7269 ± 0.0371` |
+Statistical notes:
 
-Across all verified targets, `EEGNet` is the strongest transfer baseline, while `Riemann` is clearly stronger than `FBCSP` and improves steadily as calibration shots increase. The all-target view is more reliable than any single-target case and is therefore the main basis for interpretation.
-
-Single-target `S2` remains available as a reference case, but it should now be treated as an illustrative example rather than the main transfer conclusion.
-
-## Repeated-Seed Transfer Check
-
-To test whether the transfer ranking depends too heavily on one calibration split, repeated-seed all-target transfer sweeps were run for `seed=42,43`.
-
-| Model | Seeds | Accuracy Mean | 95% CI |
-|---|---:|---:|---:|
-| FBCSP Transfer | `2` | `0.5762` | `[0.5688, 0.5835]` |
-| Riemann Transfer | `2` | `0.6756` | `[0.6511, 0.7001]` |
-| EEGNet Transfer, `50` max epochs + early stopping | `2` | `0.7411` | `[0.7150, 0.7672]` |
-
-Repeated-seed paired comparisons also favored the stronger models consistently:
-
-- `Riemann` beat `FBCSP` at every shot setting, with permutation-test `p` values from about `0.0438` down to `0.0006`.
-- `EEGNet` beat `Riemann` at every shot setting, with updated permutation-test `p` values from about `0.0234` down to `0.0005`.
-- `EEGNet` stayed above `FBCSP` at every shot setting in the repeated-seed sweep.
-
-These repeated-seed results make the transfer interpretation more robust: `EEGNet` does not lead on only one favorable split, and `Riemann` remains a strong non-deep transfer baseline.
-
-## Representative Runtime Reference
-
-The regenerated representative runs also provide a simple wall-clock reference for model cost on the same local environment. These values are useful for comparing practical cost within this repository, but they should not be treated as hardware-independent benchmark claims.
-
-| Protocol | Representative Model | Runtime (s) | Runtime (min) |
-|---|---|---:|---:|
-| within-subject | `FBCSP` | `405.20` | `6.75` |
-| LOSO | `EEGNet` | `685.16` | `11.42` |
-| repeated-seed transfer | `Riemann` | `171.50` | `2.86` |
-| repeated-seed transfer | `EEGNet` | `1255.64` | `20.93` |
-
-In short, `FBCSP` remains the strongest verified within-subject model, `EEGNet` is the strongest verified LOSO and transfer model, and `Riemann` offers the lightest representative transfer run among the stronger transfer baselines.
+- Within-subject: only Raw Power vs CSP and Raw Power vs Riemann are significant after Holm correction (`p_Holm = 0.039`); CSP, FBCSP, Riemann, and EEGNet do not differ significantly.
+- LOSO: EEGNet is higher than every other model in 8 of 9 subjects (uncorrected `p = 0.012-0.020`, `p_Holm = 0.12-0.18`).
+- Transfer: every ordering is consistent across settings, but with 9 targets and 15 tests the smallest attainable Holm-adjusted p-value is `0.0586`.
+- With a `300`-epoch budget, EEGNet reaches `0.7423` within-subject and `0.7218` in LOSO.
 
 ## Selected References
 
