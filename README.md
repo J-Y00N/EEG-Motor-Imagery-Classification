@@ -20,7 +20,7 @@ Pre-specified results (9 subjects; exact paired sign-flip tests, Holm-adjusted a
 
 [![Poster preview](docs/poster/EEG_project_poster.png)](docs/poster/EEG_project_poster.pdf)
 
-Poster summarising the refactored results: [PDF](docs/poster/EEG_project_poster.pdf), editable source [PPTX](docs/poster/EEG_project_poster.pptx). The poster made for the original project in 2025 reported results that the refactoring corrected; its numbers should not be cited.
+Poster summarising the refactored results: [PDF](docs/poster/EEG_project_poster.pdf). The poster made for the original project in 2025 reported results that the refactoring corrected; its numbers should not be cited.
 
 ## Report
 
